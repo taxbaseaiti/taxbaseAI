@@ -1,104 +1,119 @@
-# Importando as bibliotecas necessárias
 import streamlit as st
-import pandas as pd
-from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe_agent
-from langchain_openai import ChatOpenAI
 import os
+import sqlite3
+import pandas as pd
+import streamlit_authenticator as stauth
+from langchain_openai import ChatOpenAI
+from langchain_community.utilities import SQLDatabase
+from langchain_community.agent_toolkits import create_sql_agent
 
 # --- Configuração da Página ---
-st.set_page_config(page_title="Análise Financeira com IA", layout="wide", initial_sidebar_state="expanded")
-st.title("🤖 Assistente de Análise Financeira v2.2")
+st.set_page_config(page_title="Plataforma de BI com IA", layout="wide")
 
-# --- Funções Auxiliares ---
-def get_language_instruction():
-    return " IMPORTANT: Your final answer must be in Brazilian Portuguese. (IMPORTANTE: Sua resposta final deve ser em português do Brasil.)"
+# --- Conexão com o Banco de Dados ---
+DB_PATH = "plataforma_financeira.db"
+if not os.path.exists(DB_PATH):
+    st.error("Banco de dados não encontrado. Execute o script de migração primeiro.")
+    st.stop()
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+cursor = conn.cursor()
 
-def calcular_kpis(agent):
-    instruction = get_language_instruction()
-    kpis_a_calcular = {
-        "Margem Bruta": f"Calcule a Margem Bruta (Lucro Bruto / Receita Líquida). Exiba o resultado em percentual.{instruction}",
-        "Margem Líquida": f"Calcule a Margem Líquida (Lucro Líquido / Receita Líquida). Exiba o resultado em percentual.{instruction}",
-        "Liquidez Corrente": f"Calcule o índice de Liquidez Corrente (Ativo Circulante / Passivo Circulante). Exiba como um número (ex: 1.5x).{instruction}"
-    }
-    
-    st.subheader("Dashboard de KPIs Essenciais")
-    kpi_cols = st.columns(len(kpis_a_calcular))
-    
-    for i, (kpi_nome, kpi_pergunta) in enumerate(kpis_a_calcular.items()):
-        with kpi_cols[i]:
-            with st.spinner(f"Calculando {kpi_nome}..."):
-                try:
-                    # Modificado para passar a pergunta com a instrução de idioma
-                    resposta_bruta = agent.run(kpi_pergunta)
-                    # Tentativa de extrair apenas o valor para a métrica
-                    st.metric(label=kpi_nome, value=resposta_bruta)
-                except Exception as e:
-                    st.error(f"Erro ao calcular {kpi_nome}")
+# --- AUTENTICAÇÃO ---
+# Puxa os dados dos usuários do banco de dados
+cursor.execute('SELECT nome, email, senha FROM usuarios')
+db_users = cursor.fetchall()
+credentials = {'usernames': {}}
+for row in db_users:
+    nome, email, senha = row
+    credentials['usernames'][email] = {'name': nome, 'password': senha}
 
-# --- Barra Lateral (Sidebar) para Upload ---
-with st.sidebar:
-    st.header("Carregue seus Arquivos")
-    st.write("Formatos aceitos: .xlsx ou .csv")
-    dre_file = st.file_uploader("Upload do DRE", type=['xlsx', 'csv'])
-    balanco_file = st.file_uploader("Upload do Balanço Patrimonial", type=['xlsx', 'csv'])
+authenticator = stauth.Authenticate(credentials, 'bi_cookie', 'bi_key', cookie_expiry_days=30)
 
-# --- Lógica Principal da Aplicação ---
-if dre_file is not None and balanco_file is not None:
+# --- TELA DE LOGIN E CADASTRO ---
+st.title("Plataforma de Análise Financeira com IA")
+
+# Cria abas para Login e Cadastro
+login_tab, register_tab = st.tabs(["Login", "Cadastre-se"])
+
+with login_tab:
+    # ALTERAÇÃO AQUI: A função login() apenas renderiza o formulário.
+    # A verificação do status é feita depois, via st.session_state.
+    authenticator.login()
+
+with register_tab:
     try:
-        # Carregando os dataframes
-        if dre_file.name.endswith('.csv'):
-            dre_df = pd.read_csv(dre_file)
-        else:
-            dre_df = pd.read_excel(dre_file, engine='openpyxl')
-
-        if balanco_file.name.endswith('.csv'):
-            balanco_df = pd.read_csv(balanco_file)
-        else:
-            balanco_df = pd.read_excel(balanco_file, engine='openpyxl')
-            
-        dre_df['descrição'] = dre_df['descrição'].str.strip()
-        balanco_df['descrição'] = balanco_df['descrição'].str.strip()
-
-        with st.expander("Visualizar DRE Completo (Dados Limpos)"):
-            st.dataframe(dre_df)
-        with st.expander("Visualizar Balanço Patrimonial Completo (Dados Limpos)"):
-            st.dataframe(balanco_df)
-
-        # Inicializando o agente de IA
-        llm = ChatOpenAI(temperature=0, model="gpt-4o", api_key=st.secrets["OPENAI_API_KEY"])
-        
-        # ⭐️ ALTERAÇÃO: Removido 'agent_kwargs' e 'handle_parsing_errors' que não são mais suportados
-        agent = create_pandas_dataframe_agent(
-            llm,
-            [dre_df, balanco_df],
-            verbose=True,
-            allow_dangerous_code=True
-        )
-
-        if st.button("Calcular KPIs Essenciais"):
-            calcular_kpis(agent)
-        st.divider()
-
-        st.subheader("Converse com seus Dados")
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-        if prompt := st.chat_input("Qual sua pergunta?"):
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.markdown(prompt)
-
-            with st.chat_message("assistant"):
-                with st.spinner("Analisando..."):
-                    # ⭐️ ALTERAÇÃO: Adicionando a instrução de idioma diretamente ao prompt do usuário
-                    prompt_with_instruction = prompt + get_language_instruction()
-                    response = agent.run(prompt_with_instruction)
-                    st.markdown(response)
-            st.session_state.messages.append({"role": "assistant", "content": response})
-
+        if authenticator.register_user(pre_authorization=False):
+            st.success('Usuário cadastrado com sucesso! Por favor, faça o login na aba "Login".')
+            # Atualiza as credenciais após o cadastro
+            cursor.execute('SELECT nome, email, senha FROM usuarios')
+            db_users_updated = cursor.fetchall()
+            credentials['usernames'] = {email: {'name': nome, 'password': senha} for nome, email, senha in db_users_updated}
+            authenticator.credentials = credentials
     except Exception as e:
-        st.error(f"Ocorreu um erro ao processar os arquivos. Verifique o formato e o conteúdo. Detalhes: {e}")
-else:
-    st.info("Por favor, carregue os arquivos de DRE e Balanço na barra lateral para começar.")
+        st.error(e)
+
+# --- LÓGICA PRINCIPAL DA APLICAÇÃO (SÓ EXECUTA APÓS LOGIN) ---
+if st.session_state.get("authentication_status"):
+    st.sidebar.title(f"Bem-vindo, {st.session_state['name']}!")
+    authenticator.logout('Logout', 'sidebar')
+
+    # --- SELEÇÃO DE EMPRESA ---
+    cursor.execute('''
+        SELECT e.id, e.nome FROM empresas e
+        JOIN permissoes p ON e.id = p.id_empresa
+        JOIN usuarios u ON p.id_usuario = u.id
+        WHERE u.email = ?
+    ''', (st.session_state['username'],))
+    user_empresas = cursor.fetchall()
+    
+    if not user_empresas:
+        st.warning("Você não tem permissão para acessar nenhuma empresa. Contate o administrador.")
+        st.stop()
+    
+    empresas_dict = {nome: id for id, nome in user_empresas}
+    empresa_selecionada_nome = st.sidebar.selectbox("Selecione uma empresa:", options=empresas_dict.keys())
+    empresa_selecionada_id = empresas_dict[empresa_selecionada_nome]
+
+    if "current_company_id" not in st.session_state or st.session_state.current_company_id != empresa_selecionada_id:
+        st.session_state.messages = []
+        st.session_state.current_company_id = empresa_selecionada_id
+
+    # --- INICIALIZAÇÃO DA IA ---
+    st.header(f"Analisando: {empresa_selecionada_nome}")
+    db = SQLDatabase.from_uri(f"sqlite:///{DB_PATH}")
+    llm = ChatOpenAI(temperature=0, model="gpt-4o", api_key=st.secrets["OPENAI_API_KEY"])
+
+    CUSTOM_PROMPT_PREFIX = f"""
+    You are a senior financial analyst AI. 
+    *** CRITICAL SECURITY RULE ***
+    ALL SQL queries you generate MUST include a WHERE clause to filter by the company ID.
+    The company ID for all queries is: {empresa_selecionada_id}
+    NEVER query data without this WHERE clause.
+    """
+    
+    agent_executor = create_sql_agent(llm, db=db, agent_type="openai-tools", verbose=True, prefix=CUSTOM_PROMPT_PREFIX)
+
+    # --- Funcionalidade de Chat ---
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+    if prompt := st.chat_input(f"Pergunte algo sobre {empresa_selecionada_nome}..."):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        with st.chat_message("assistant"):
+            with st.spinner("Analisando..."):
+                response = agent_executor.invoke({"input": prompt})
+                st.markdown(response["output"])
+        st.session_state.messages.append({"role": "assistant", "content": response["output"]})
+
+elif st.session_state.get("authentication_status") is False:
+    with login_tab:
+        st.error('Email ou senha incorretos.')
+elif st.session_state.get("authentication_status") is None:
+    with login_tab:
+        st.info('Por favor, faça o login para continuar.')
+
+conn.close()

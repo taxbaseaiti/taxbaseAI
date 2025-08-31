@@ -5,3 +5,7 @@ langchain-openai
 langchain-experimental
 openpyxl
 tabulate
+streamlit-authenticator
+bcrypt
+langchain-community
+sqlalchemy
