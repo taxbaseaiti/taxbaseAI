@@ -4,7 +4,6 @@ import os
 import bcrypt
 
 # --- CONFIGURAÇÃO ---
-# Adicione aqui os nomes dos arquivos CSV de todas as empresas que você quer carregar
 ARQUIVO_DB = 'plataforma_financeira.db'
 
 # --- APAGA O BANCO DE DADOS ANTIGO ---
@@ -24,19 +23,17 @@ cursor.execute('CREATE TABLE dre (nome_empresa TEXT, descrição TEXT, valor REA
 cursor.execute('CREATE TABLE balanco (nome_empresa TEXT, descrição TEXT, saldo_atual REAL, empresa_id INTEGER);')
 print("Tabelas de estrutura criadas com a coluna 'categoria'.")
 
-# --- FUNÇÃO DE CATEGORIZAÇÃO ---
+# --- FUNÇÃO DE CATEGORIZAÇÃO (ESSENCIAL) ---
 def categorizar_conta(descricao):
-    # Garante que a descrição é uma string antes de processar
     if not isinstance(descricao, str):
         return 'Outros'
-    
     desc = descricao.upper()
-    if 'RECEITA' in desc:
+    if 'CUSTO' in desc:
+        return 'Custo'
+    elif 'RECEITA' in desc:
         return 'Receita'
     elif 'DESPESA' in desc or 'IMPOSTOS' in desc or 'TAXAS' in desc or '(-) ' in descricao:
         return 'Despesa'
-    elif 'CUSTO' in desc:
-        return 'Custo'
     elif 'LUCRO' in desc or 'RESULTADO' in desc or 'PREJUÍZO' in desc:
         return 'Resultado'
     else:
@@ -44,8 +41,8 @@ def categorizar_conta(descricao):
 
 # --- DADOS DE USUÁRIOS E EMPRESAS ---
 # Use o gerar_hash.py para criar os hashes das senhas
-senha_admin_hash = "$2b$12$JH868yRpoqP7x.k/vvcFo.tCKSVewKRDqVZ3G.4k5N9NtHYdzU0Gu"
-senha_user2_hash = "$2b$12$41wl/3D9dj0kCj9Ar8kUSuRO2zMlskgjjWqMhoBvX5UMJUvfz1m7i"
+senha_admin_hash = "$2b$12$Uww85k1f7a5yFCrNVxxcUeFxtnVSaOtxD2ezLBb44CgIwCHFfIk5G" # ex: $2b$12$....
+senha_user2_hash = "$2b$12$nybVTViF/YSMq/gXE7ms9eYUhs0QE615p.3UsFQDNQn1MM8g9vlKK" # ex: $2b$12$....
 
 usuarios_iniciais = [
     (1, 'Admin Principal', 'admin@email.com', senha_admin_hash, 'admin'),
@@ -66,8 +63,13 @@ empresas_para_carregar = [
         "nome": "JJ MAX INDUSTRIA E COMERCIO DE COMESTICOS LTDA",
         "dre_csv": "DRE_JJ_MAX_2024.csv",
         "balanco_csv": "BALANCO_JJ_MAX_2024.csv"
+    },
+    {
+        "id": 3,
+        "nome": "SAUDE & FORMA-FARMACIA DE MANIPULACAO EHOMEOPATIA LTDA",
+        "dre_csv": "DRE_SAUDE_FORMA_2024.csv",
+        "balanco_csv": "BALANCO_SAUDE_FORMA_2024.csv"
     }
-    # Adicione novas empresas aqui
 ]
 
 for empresa in empresas_para_carregar:
@@ -84,6 +86,8 @@ for empresa in empresas_para_carregar:
         balanco_df.to_sql('balanco', conn, if_exists='append', index=False)
         
         print(f"Dados carregados e categorizados para: {empresa['nome']}")
+    except FileNotFoundError:
+        print(f"AVISO: Arquivo CSV não encontrado para a empresa '{empresa['nome']}'. Pulando.")
     except Exception as e:
         print(f"Erro ao carregar dados para {empresa['nome']}: {e}")
 
@@ -91,7 +95,8 @@ for empresa in empresas_para_carregar:
 permissoes_iniciais = [
     (1, 1), # Admin acessa Ciclomade
     (1, 2), # Admin acessa JJ MAX
-    (2, 2)  # User 2 acessa JJ MAX
+    (1, 3), # Admin acessa Saude & Forma
+    (2, 2)  # User 2 acessa SÓ a JJ MAX
 ]
 cursor.executemany("INSERT INTO permissoes (id_usuario, id_empresa) VALUES (?, ?)", permissoes_iniciais)
 print("Permissões iniciais concedidas.")

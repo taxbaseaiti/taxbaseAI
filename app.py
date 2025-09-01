@@ -5,7 +5,9 @@ import pandas as pd
 import streamlit_authenticator as stauth
 from langchain_openai import ChatOpenAI
 from langchain_community.utilities import SQLDatabase
-from langchain_community.agent_toolkits import create_sql_agent
+from langchain.agents import AgentExecutor
+from langchain.agents.agent_toolkits import create_sql_agent, SQLDatabaseToolkit
+from langchain.tools import Tool
 import bcrypt
 import plotly.express as px
 
@@ -57,15 +59,83 @@ div[data-testid="stForm"] {
 div[data-testid="stForm"] h1 { display: none; }
 </style>
 """
-st.markdown(page_bg_css, unsafe_allow_html=True) # Cole seu CSS aqui para manter o visual
+st.markdown(page_bg_css, unsafe_allow_html=True)
 
 # --- Funções e Conexão com DB ---
 def get_db_connection():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
-
 if not os.path.exists(DB_PATH):
     st.error("Banco de dados não encontrado. Por favor, execute o script 'migracao_db.py' primeiro.")
     st.stop()
+
+# --- FUNÇÃO DO DASHBOARD ---
+def display_dashboard(empresa_id):
+    st.subheader("Dashboard de Visão Geral")
+    conn = get_db_connection()
+    try:
+        query = f"""
+        WITH kpis AS (
+            SELECT
+                (SELECT valor FROM dre WHERE descrição = 'RECEITA LÍQUIDA' AND empresa_id = {empresa_id}) as receita_liquida,
+                (SELECT valor FROM dre WHERE (descrição LIKE '%LUCRO LÍQUIDO%' OR descrição LIKE '%PREJUÍZO DO EXERCÍCIO%') AND empresa_id = {empresa_id}) as resultado_final,
+                (SELECT SUM(saldo_atual) FROM balanco WHERE descrição IN ('ATIVO CIRCULANTE', 'ATIVO NÃO-CIRCULANTE') AND empresa_id = {empresa_id}) as ativo_total
+            )
+        SELECT * FROM kpis
+        """
+        kpi_df = pd.read_sql_query(query, conn)
+
+        if not kpi_df.empty and kpi_df.notna().all().all():
+            receita_liquida = kpi_df['receita_liquida'].iloc[0]
+            resultado_final = kpi_df['resultado_final'].iloc[0]
+            rotulo_resultado = "Lucro Líquido" if resultado_final >= 0 else "Prejuízo do Exercício"
+            margem_liquida = (resultado_final / receita_liquida * 100) if receita_liquida else 0
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Receita Líquida", f"R$ {receita_liquida:,.2f}")
+            col2.metric(rotulo_resultado, f"R$ {resultado_final:,.2f}")
+            col3.metric("Margem Líquida", f"{margem_liquida:.2f}%")
+        else:
+            st.warning("Não foi possível calcular os KPIs. Verifique os dados da empresa.")
+
+        st.markdown("---")
+        st.subheader("Top 5 Maiores Despesas")
+        despesas_df = pd.read_sql_query(f"SELECT descrição, valor FROM dre WHERE categoria = 'Despesa' AND empresa_id = {empresa_id} ORDER BY valor ASC LIMIT 5", conn)
+        
+        if not despesas_df.empty:
+            despesas_df['valor_abs'] = despesas_df['valor'].abs()
+            fig = px.bar(despesas_df, x='valor_abs', y='descrição', orientation='h', labels={'valor_abs': 'Valor (R$)', 'descrição': ''}, text='valor_abs', color_discrete_sequence=['#007bff'])
+            fig.update_traces(texttemplate='R$ %{text:,.2f}', textposition='outside')
+            fig.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#FAFAFA')
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Não foram encontradas despesas categorizadas para esta empresa.")
+    except Exception as e:
+        st.error(f"Erro ao gerar o dashboard: {e}")
+    finally:
+        conn.close()
+
+# --- ⭐️ NOVAS FERRAMENTAS ESPECIALISTAS DA IA ⭐️ ---
+def get_total_by_category(category: str, empresa_id: int) -> float:
+    """Ferramenta para buscar o valor total de uma categoria específica (Receita, Custo, Despesa) para uma empresa."""
+    conn = get_db_connection()
+    try:
+        query = f"SELECT SUM(valor) FROM dre WHERE categoria = '{category}' AND empresa_id = {empresa_id}"
+        result = pd.read_sql_query(query, conn)
+        # Retorna 0 se o resultado for None (nenhuma conta encontrada)
+        return result.iloc[0,0] or 0
+    finally:
+        conn.close()
+
+def get_specific_account_value(account_name: str, empresa_id: int) -> float:
+    """Ferramenta para buscar o valor de uma conta específica pelo nome, como 'Receita Líquida' ou 'Despesas Operacionais'."""
+    conn = get_db_connection()
+    try:
+        # Usamos LIKE para mais flexibilidade (ex: pega '(-) DESPESAS OPERACIONAIS')
+        query = f"SELECT valor FROM dre WHERE descrição LIKE '%{account_name}%' AND empresa_id = {empresa_id}"
+        result = pd.read_sql_query(query, conn)
+        return result.iloc[0,0] if not result.empty else 0
+    finally:
+        conn.close()
 
 # ⭐️ NOVO: Função de Categorização agora dentro do app.py ⭐️
 def categorizar_conta(descricao):
@@ -144,20 +214,10 @@ cursor = conn.cursor()
 cursor.execute('SELECT nome, email, senha, role FROM usuarios')
 db_users = cursor.fetchall()
 conn.close()
-
 credentials = {'usernames': {}}
 for row in db_users:
     nome, email, senha, role = row
     credentials['usernames'][email] = {'name': nome, 'password': senha, 'role': role}
-
-# --- LINHA DE DIAGNÓSTICO ---
-# Este bloco irá imprimir as credenciais no terminal
-print("="*50)
-print("CREDENCIAS CARREGADAS PARA O AUTENTICADOR:")
-print(credentials)
-print("="*50)
-# --- FIM DO DIAGNÓSTICO ---
-
 authenticator = stauth.Authenticate(credentials, 'bi_cookie_final_v5', 'bi_key_final_v5', 30)
 
 # --- LÓGICA DE RENDERIZAÇÃO ---
@@ -176,6 +236,7 @@ if not st.session_state.get("authentication_status"):
         st.error('Email ou senha incorretos.')
     elif st.session_state.get("authentication_status") is None:
         st.info('Por favor, insira suas credenciais para acessar.')
+
 else:
     # --- INTERFACE PRINCIPAL APÓS O LOGIN ---
     st.session_state['role'] = credentials['usernames'][st.session_state['username']]['role']
@@ -201,32 +262,56 @@ else:
         empresa_selecionada_id = empresas_dict[empresa_selecionada_nome]
         
         st.header(f"Analisando: {empresa_selecionada_nome}")
-
-        # Chama a função do dashboard
-        display_dashboard(empresa_selecionada_id)
         
+        display_dashboard(empresa_selecionada_id) # Desativado temporariamente para focar na IA
         st.divider()
         st.header("Converse com a IA")
         
         db = SQLDatabase.from_uri(f"sqlite:///{DB_PATH}")
         llm = ChatOpenAI(temperature=0, model="gpt-4o", api_key=st.secrets["OPENAI_API_KEY"])
         
-        CUSTOM_PROMPT_PREFIX = f"""
-        You are a senior financial analyst AI.
-        You have access to a SQL database. The 'dre' table has a crucial column named 'categoria'.
-        The 'categoria' column classifies each account as 'Receita', 'Custo', 'Despesa', or 'Resultado'.
-
-        *** CRITICAL RULE FOR QUERIES ***
-        When a user asks for 'despesas' (expenses), you MUST filter your SQL query with `WHERE categoria = 'Despesa'`.
-        When a user asks for 'receitas' (revenues), you MUST filter with `WHERE categoria = 'Receita'`.
-        To find the biggest expenses, you should order by the `valor` column in ascending order (since expenses are negative).
-        To find the biggest revenues, order by `valor` in descending order.
-
-        *** CRITICAL SECURITY RULE ***
-        ALL SQL queries you generate MUST also include a WHERE clause to filter by the company ID.
-        The company ID for all queries is: {empresa_selecionada_id}
+        # --- ⭐️ ARQUITETURA FINAL DA IA COM FERRAMENTAS ⭐️ ---
+        # 1. Cria o kit de ferramentas SQL padrão (para perguntas genéricas)
+        sql_toolkit = SQLDatabaseToolkit(db=db, llm=llm)
+        
+        # 2. Cria nossas ferramentas customizadas e confiáveis
+        custom_tools = [
+            Tool.from_function(
+                func=lambda _: get_total_by_category('Custo', empresa_selecionada_id),
+                name="buscar_total_custos",
+                description="Use esta ferramenta para obter o valor total de todos os custos da empresa."
+            ),
+            Tool.from_function(
+                func=lambda _: get_specific_account_value('DESPESAS OPERACIONAIS', empresa_selecionada_id),
+                name="buscar_despesas_operacionais",
+                description="Use esta ferramenta para obter o valor da linha de Despesas Operacionais da empresa."
+            ),
+            Tool.from_function(
+                func=lambda _: get_specific_account_value('RECEITA LÍQUIDA', empresa_selecionada_id),
+                name="buscar_receita_liquida",
+                description="Use esta ferramenta para obter o valor da Receita Líquida da empresa."
+            )
+        ]
+        
+        # 3. Junta as ferramentas padrão com as nossas
+        all_tools = sql_toolkit.get_tools() + custom_tools
+        
+        # 4. Cria o agente final com um prompt simples para usar as ferramentas
+        agent = create_sql_agent(
+            llm=llm,
+            toolkit=sql_toolkit,
+            tools=all_tools,
+            verbose=True
+        )
+        
+        # O prompt agora é passado diretamente na chamada
+        agent_prompt_prefix = f"""
+        Você é um assistente de IA para análise financeira. Responda em português do Brasil.
+        O ID da empresa atual é {empresa_selecionada_id}.
+        Sua principal tarefa é usar as ferramentas disponíveis para responder às perguntas.
+        Priorize o uso das ferramentas customizadas (buscar_total_custos, buscar_despesas_operacionais, buscar_receita_liquida) quando a pergunta do usuário corresponder a elas.
+        Para outras perguntas, você pode usar as ferramentas SQL padrão para consultar o banco de dados.
         """
-        agent_executor = create_sql_agent(llm, db=db, agent_type="openai-tools", verbose=True, prefix=CUSTOM_PROMPT_PREFIX)
 
         if "messages" not in st.session_state: st.session_state.messages = []
         for message in st.session_state.messages:
@@ -238,7 +323,9 @@ else:
                 st.markdown(prompt)
             with st.chat_message("assistant"):
                 with st.spinner("Analisando..."):
-                    response = agent_executor.invoke({"input": prompt})
+                    # Adiciona o prefixo ao prompt do usuário antes de enviar
+                    full_prompt = agent_prompt_prefix + "\n\nPergunta do Usuário: " + prompt
+                    response = agent.invoke({"input": full_prompt})
                     st.markdown(response["output"])
             st.session_state.messages.append({"role": "assistant", "content": response["output"]})
     
