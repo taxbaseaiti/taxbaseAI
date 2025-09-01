@@ -11,11 +11,12 @@ from langchain_community.agent_toolkits import create_sql_agent
 st.set_page_config(page_title="taxbaseAI - Plataforma de BI com IA", layout="wide")
 DB_PATH = "plataforma_financeira.db"
 
-# --- CSS MÍNIMO (APENAS ESTÉTICA, SEM LAYOUT) ---
+# --- ⭐️ CSS FINAL COM CORREÇÃO DE ÍCONES ⭐️ ---
 page_bg_css = """
 <style>
 /* Importa a fonte Poppins */
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
+
 /* Fundo Principal Escuro */
 [data-testid="stAppViewContainer"] {
     background-color: #010714;
@@ -24,16 +25,22 @@ page_bg_css = """
 [data-testid="stHeader"], [data-testid="stToolbar"] {
     background: none;
 }
-/* Aplica a nova fonte e cor a toda a aplicação */
-html, body, [class*="st-"], [class*="css-"] {
+
+/* --- ALTERAÇÃO AQUI: Aplicação da fonte de forma mais específica --- */
+/* Define a fonte Poppins como padrão para o corpo da aplicação */
+body, .stApp {
     font-family: 'Poppins', sans-serif;
+}
+/* Garante a cor correta do texto, respeitando os ícones */
+html, body, [class*="st-"], [class*="css-"] {
     color: #FAFAFA !important;
 }
 h1, h2, h3, h4, h5, h6 {
-    font-family: 'Poppins', sans-serif;
+    font-family: 'Poppins', sans-serif; /* Garante que títulos usem Poppins */
     color: #FAFAFA !important;
 }
-/* Estilos da Sidebar e do Chat */
+
+/* Estilos da Sidebar e do Chat (sem alterações) */
 [data-testid="stSidebar"] { background-color: #0E1117; }
 [data-testid="stChatMessage"] {
     background-color: #1E293B;
@@ -42,7 +49,7 @@ h1, h2, h3, h4, h5, h6 {
     margin-bottom: 1rem;
     border: 1px solid #334155;
 }
-/* Estilo para o formulário de login */
+/* Estilo para o formulário de login (sem alterações) */
 div[data-testid="stForm"] {
     border: 1px solid #334155;
     background-color: #0E1117;
@@ -77,16 +84,12 @@ authenticator = stauth.Authenticate(credentials, 'bi_cookie_final_v5', 'bi_key_f
 # --- LÓGICA DE RENDERIZAÇÃO ---
 if not st.session_state.get("authentication_status"):
     # --- TELA DE LOGIN ---
-    col1, col2, col3 = st.columns([1.5, 2, 1.5]) # Colunas laterais como espaçadores
-
-    with col2: # Todo o conteúdo de login vai na coluna central
+    col1, col2, col3 = st.columns([1.5, 2, 1.5])
+    with col2:
         logo_path = "assets/logo.png"
         if os.path.exists(logo_path):
-            # ALTERAÇÃO: Corrigido o nome do parâmetro
-            st.image(logo_path, use_container_width=True) 
-        
+            st.image(logo_path, use_container_width=True)
         st.markdown("<h2 style='text-align: center;'>Sua Plataforma de Análise Financeira</h2>", unsafe_allow_html=True)
-        
         fields_login = {'Form name': ' ', 'Username': 'Seu Email', 'Password': 'Sua Senha'}
         authenticator.login(fields=fields_login)
     
@@ -142,6 +145,40 @@ else:
     
     elif app_mode == "Painel Admin":
         st.header("🔑 Painel de Administração")
+        st.subheader("Cadastrar Nova Empresa")
+        with st.form("form_nova_empresa", clear_on_submit=True):
+            nome_nova_empresa = st.text_input("Nome da Nova Empresa")
+            arquivo_dre = st.file_uploader("Arquivo DRE (CSV)", type=['csv'])
+            arquivo_balanco = st.file_uploader("Arquivo Balanço (CSV)", type=['csv'])
+            submitted_empresa = st.form_submit_button("Cadastrar Empresa e Dados")
+
+            if submitted_empresa:
+                if nome_nova_empresa and arquivo_dre and arquivo_balanco:
+                    try:
+                        conn = get_db_connection()
+                        cursor = conn.cursor()
+                        cursor.execute("INSERT INTO empresas (nome) VALUES (?)", (nome_nova_empresa,))
+                        id_nova_empresa = cursor.lastrowid
+                        conn.commit()
+
+                        dre_df = pd.read_csv(arquivo_dre)
+                        dre_df['empresa_id'] = id_nova_empresa
+                        dre_df.to_sql('dre', conn, if_exists='append', index=False)
+                        
+                        balanco_df = pd.read_csv(arquivo_balanco)
+                        balanco_df['empresa_id'] = id_nova_empresa
+                        balanco_df.to_sql('balanco', conn, if_exists='append', index=False)
+                        
+                        conn.close()
+                        st.success(f"Empresa '{nome_nova_empresa}' e seus dados foram cadastrados com sucesso!")
+                    except sqlite3.IntegrityError:
+                        st.error(f"Erro: Uma empresa com o nome '{nome_nova_empresa}' já existe.")
+                    except Exception as e:
+                        st.error(f"Ocorreu um erro inesperado: {e}")
+                else:
+                    st.warning("Por favor, preencha todos os campos e anexe os dois arquivos.")
+        
+        st.divider()
         st.subheader("Cadastrar Novo Usuário")
         with st.form("form_novo_usuario", clear_on_submit=True):
             novo_nome = st.text_input("Nome do Usuário")
