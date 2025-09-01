@@ -10,3 +10,4 @@ bcrypt
 langchain-community
 sqlalchemy
 extra-streamlit-components
+plotly
