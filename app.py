@@ -67,6 +67,22 @@ if not os.path.exists(DB_PATH):
     st.error("Banco de dados não encontrado. Por favor, execute o script 'migracao_db.py' primeiro.")
     st.stop()
 
+# ⭐️ NOVO: Função de Categorização agora dentro do app.py ⭐️
+def categorizar_conta(descricao):
+    if not isinstance(descricao, str):
+        return 'Outros'
+    desc = descricao.upper()
+    if 'RECEITA' in desc:
+        return 'Receita'
+    elif 'DESPESA' in desc or 'IMPOSTOS' in desc or 'TAXAS' in desc or '(-) ' in descricao:
+        return 'Despesa'
+    elif 'CUSTO' in desc:
+        return 'Custo'
+    elif 'LUCRO' in desc or 'RESULTADO' in desc or 'PREJUÍZO' in desc:
+        return 'Resultado'
+    else:
+        return 'Outros'
+
 # --- FUNÇÃO DO DASHBOARD ATUALIZADA ---
 def display_dashboard(empresa_id):
     st.subheader("Dashboard de Visão Geral")
@@ -228,7 +244,6 @@ else:
     
     elif app_mode == "Painel Admin":
         st.header("🔑 Painel de Administração")
-
         st.subheader("Cadastrar Nova Empresa")
         with st.form("form_nova_empresa", clear_on_submit=True):
             nome_nova_empresa = st.text_input("Nome da Nova Empresa")
@@ -245,8 +260,10 @@ else:
                         id_nova_empresa = cursor.lastrowid
                         conn.commit()
 
+                        # ⭐️ ALTERAÇÃO: Aplicando a categorização no DRE enviado ⭐️
                         dre_df = pd.read_csv(arquivo_dre)
                         dre_df['empresa_id'] = id_nova_empresa
+                        dre_df['categoria'] = dre_df['descrição'].apply(categorizar_conta) # <-- LINHA ADICIONADA
                         dre_df.to_sql('dre', conn, if_exists='append', index=False)
                         
                         balanco_df = pd.read_csv(arquivo_balanco)
@@ -254,7 +271,7 @@ else:
                         balanco_df.to_sql('balanco', conn, if_exists='append', index=False)
                         
                         conn.close()
-                        st.success(f"Empresa '{nome_nova_empresa}' e seus dados foram cadastrados com sucesso!")
+                        st.success(f"Empresa '{nome_nova_empresa}' e seus dados foram cadastrados e categorizados com sucesso!")
                     except sqlite3.IntegrityError:
                         st.error(f"Erro: Uma empresa com o nome '{nome_nova_empresa}' já existe.")
                     except Exception as e:
