@@ -1,62 +1,113 @@
 import streamlit as st
 import os
 import sqlite3
-import pandas as pd # ALTERAÇÃO: Adicionada a importação que faltava
+import pandas as pd
 import streamlit_authenticator as stauth
 from langchain_openai import ChatOpenAI
 from langchain_community.utilities import SQLDatabase
 from langchain_community.agent_toolkits import create_sql_agent
 
-# --- Configuração da Página e Conexão com DB ---
-st.set_page_config(page_title="Plataforma de BI com IA", layout="wide")
+# --- Configuração da Página ---
+st.set_page_config(page_title="taxbaseAI - Plataforma de BI com IA", layout="wide")
 DB_PATH = "plataforma_financeira.db"
 
-# Função para conectar ao DB
+# --- CSS MÍNIMO (APENAS ESTÉTICA, SEM LAYOUT) ---
+page_bg_css = """
+<style>
+/* Importa a fonte Poppins */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
+/* Fundo Principal Escuro */
+[data-testid="stAppViewContainer"] {
+    background-color: #010714;
+}
+/* Deixa o Header e Toolbar transparentes */
+[data-testid="stHeader"], [data-testid="stToolbar"] {
+    background: none;
+}
+/* Aplica a nova fonte e cor a toda a aplicação */
+html, body, [class*="st-"], [class*="css-"] {
+    font-family: 'Poppins', sans-serif;
+    color: #FAFAFA !important;
+}
+h1, h2, h3, h4, h5, h6 {
+    font-family: 'Poppins', sans-serif;
+    color: #FAFAFA !important;
+}
+/* Estilos da Sidebar e do Chat */
+[data-testid="stSidebar"] { background-color: #0E1117; }
+[data-testid="stChatMessage"] {
+    background-color: #1E293B;
+    border-radius: 10px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border: 1px solid #334155;
+}
+/* Estilo para o formulário de login */
+div[data-testid="stForm"] {
+    border: 1px solid #334155;
+    background-color: #0E1117;
+    border-radius: 15px;
+    padding: 2rem;
+}
+div[data-testid="stForm"] h1 { display: none; }
+</style>
+"""
+st.markdown(page_bg_css, unsafe_allow_html=True)
+
+# (O restante do seu código Python permanece o mesmo)
+# --- Funções e Conexão com DB ---
 def get_db_connection():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
-
 if not os.path.exists(DB_PATH):
-    st.error("Banco de dados não encontrado. Execute o script de migração.")
+    st.error("Banco de dados não encontrado...")
     st.stop()
 
 # --- AUTENTICAÇÃO ---
 conn = get_db_connection()
 cursor = conn.cursor()
-cursor.execute('SELECT nome, email, senha, role FROM usuarios') # Puxa também o 'role'
+cursor.execute('SELECT nome, email, senha, role FROM usuarios')
 db_users = cursor.fetchall()
 conn.close()
-
 credentials = {'usernames': {}}
 for row in db_users:
     nome, email, senha, role = row
     credentials['usernames'][email] = {'name': nome, 'password': senha, 'role': role}
+authenticator = stauth.Authenticate(credentials, 'bi_cookie_final_v5', 'bi_key_final_v5', 30)
 
-authenticator = stauth.Authenticate(credentials, 'bi_cookie_v2', 'bi_key_v2', 30)
+# --- LÓGICA DE RENDERIZAÇÃO ---
+if not st.session_state.get("authentication_status"):
+    # --- TELA DE LOGIN ---
+    col1, col2, col3 = st.columns([1.5, 2, 1.5]) # Colunas laterais como espaçadores
 
-st.title("Plataforma de Análise Financeira com IA")
-authenticator.login()
+    with col2: # Todo o conteúdo de login vai na coluna central
+        logo_path = "assets/logo.png"
+        if os.path.exists(logo_path):
+            # ALTERAÇÃO: Corrigido o nome do parâmetro
+            st.image(logo_path, use_container_width=True) 
+        
+        st.markdown("<h2 style='text-align: center;'>Sua Plataforma de Análise Financeira</h2>", unsafe_allow_html=True)
+        
+        fields_login = {'Form name': ' ', 'Username': 'Seu Email', 'Password': 'Sua Senha'}
+        authenticator.login(fields=fields_login)
+    
+    if st.session_state.get("authentication_status") is False:
+        st.error('Email ou senha incorretos.')
+    elif st.session_state.get("authentication_status") is None:
+        st.info('Por favor, insira suas credenciais para acessar.')
 
-# --- LÓGICA PRINCIPAL DA APLICAÇÃO ---
-if st.session_state.get("authentication_status"):
-    # Adiciona o cargo do usuário à sessão
+else:
+    # --- INTERFACE PRINCIPAL APÓS O LOGIN ---
     st.session_state['role'] = credentials['usernames'][st.session_state['username']]['role']
-
+    st.sidebar.image("assets/logo.png", width=150)
     st.sidebar.title(f"Bem-vindo, {st.session_state['name']}!")
     authenticator.logout('Logout', 'sidebar')
 
-    # --- NAVEGAÇÃO PRINCIPAL (CONDICIONAL AO CARGO) ---
     app_mode = st.sidebar.radio("Navegação", ["Análise IA", "Painel Admin"] if st.session_state['role'] == 'admin' else ["Análise IA"])
 
-    # --- MODO: ANÁLISE IA (Para todos os usuários) ---
     if app_mode == "Análise IA":
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute('''
-            SELECT e.id, e.nome FROM empresas e
-            JOIN permissoes p ON e.id = p.id_empresa
-            JOIN usuarios u ON p.id_usuario = u.id
-            WHERE u.email = ?
-        ''', (st.session_state['username'],))
+        cursor.execute('SELECT e.id, e.nome FROM empresas e JOIN permissoes p ON e.id = p.id_empresa JOIN usuarios u ON p.id_usuario = u.id WHERE u.email = ?', (st.session_state['username'],))
         user_empresas = cursor.fetchall()
         conn.close()
         
@@ -67,20 +118,15 @@ if st.session_state.get("authentication_status"):
         empresas_dict = {nome: id for id, nome in user_empresas}
         empresa_selecionada_nome = st.sidebar.selectbox("Selecione uma empresa:", options=empresas_dict.keys())
         empresa_selecionada_id = empresas_dict[empresa_selecionada_nome]
-
-        # (O resto do código da IA permanece o mesmo...)
+        
         st.header(f"Analisando: {empresa_selecionada_nome}")
+        
         db = SQLDatabase.from_uri(f"sqlite:///{DB_PATH}")
         llm = ChatOpenAI(temperature=0, model="gpt-4o", api_key=st.secrets["OPENAI_API_KEY"])
-        CUSTOM_PROMPT_PREFIX = f"""
-        You are a senior financial analyst AI...
-        The company ID for all queries is: {empresa_selecionada_id}
-        ...
-        """
+        CUSTOM_PROMPT_PREFIX = f"The company ID for all queries is: {empresa_selecionada_id}"
         agent_executor = create_sql_agent(llm, db=db, agent_type="openai-tools", verbose=True, prefix=CUSTOM_PROMPT_PREFIX)
-        # (Interface de chat permanece a mesma...)
+
         if "messages" not in st.session_state: st.session_state.messages = []
-        # ... (código do chat aqui) ...
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
@@ -93,12 +139,10 @@ if st.session_state.get("authentication_status"):
                     response = agent_executor.invoke({"input": prompt})
                     st.markdown(response["output"])
             st.session_state.messages.append({"role": "assistant", "content": response["output"]})
-
-    # --- MODO: PAINEL ADMIN (Apenas para admins) ---
+    
     elif app_mode == "Painel Admin":
         st.header("🔑 Painel de Administração")
         st.subheader("Cadastrar Novo Usuário")
-
         with st.form("form_novo_usuario", clear_on_submit=True):
             novo_nome = st.text_input("Nome do Usuário")
             novo_email = st.text_input("Email")
@@ -121,20 +165,15 @@ if st.session_state.get("authentication_status"):
                         st.error(f"Ocorreu um erro: {e}")
                 else:
                     st.warning("Por favor, preencha todos os campos.")
-
         st.divider()
         st.subheader("Gerenciar Permissões")
-
         with st.form("form_permissoes", clear_on_submit=True):
             conn = get_db_connection()
-            # Pega listas de usuários e empresas do DB
             lista_usuarios = pd.read_sql('SELECT id, email FROM usuarios', conn)
             lista_empresas = pd.read_sql('SELECT id, nome FROM empresas', conn)
             conn.close()
-
             usuario_selecionado_id = st.selectbox("Selecione o Usuário:", options=lista_usuarios['id'], format_func=lambda x: lista_usuarios.loc[lista_usuarios['id'] == x, 'email'].iloc[0])
             empresa_selecionada_id_perm = st.selectbox("Selecione a Empresa:", options=lista_empresas['id'], format_func=lambda x: lista_empresas.loc[lista_empresas['id'] == x, 'nome'].iloc[0])
-            
             submitted_perm = st.form_submit_button("Conceder Permissão")
             if submitted_perm:
                 try:
@@ -146,10 +185,3 @@ if st.session_state.get("authentication_status"):
                     st.success(f"Permissão concedida com sucesso!")
                 except Exception as e:
                     st.error(f"Erro ao conceder permissão: {e}")
-
-
-# --- Lógica de Erro de Login ---
-elif st.session_state.get("authentication_status") is False:
-    st.error('Email ou senha incorretos.')
-elif st.session_state.get("authentication_status") is None:
-    st.info('Por favor, faça o login para continuar.')
