@@ -9,3 +9,4 @@ streamlit-authenticator
 bcrypt
 langchain-community
 sqlalchemy
+extra-streamlit-components
