@@ -78,6 +78,41 @@ def categorizar_conta(descricao):
     elif 'LUCRO' in desc or 'RESULTADO' in desc or 'PREJUÍZO' in desc: return 'Resultado'
     else: return 'Outros'
 
+# --- ⭐️ FERRAMENTAS ESPECIALISTAS ATUALIZADAS E SEGURAS ⭐️ ---
+def get_total_by_category(category: str, empresa_id: int) -> float:
+    """Busca o valor total de uma categoria específica (Receita, Custo, Despesa) para uma empresa."""
+    conn = get_db_connection()
+    try:
+        # Usar placeholders (?) para segurança
+        query = "SELECT SUM(valor) FROM dre WHERE categoria = ? AND empresa_id = ?"
+        cursor = conn.cursor()
+        result = cursor.execute(query, (category, empresa_id)).fetchone()
+        if result and result[0] is not None:
+            return float(result[0])
+        return 0.0 # Retorna 0.0 se não encontrar nada, garantindo que o tipo é float
+    except Exception as e:
+        print(f"Erro em get_total_by_category: {e}")
+        return 0.0 # Em caso de qualquer erro, retorna um valor seguro
+    finally:
+        conn.close()
+
+def get_specific_account_value(account_name: str, empresa_id: int) -> float:
+    """Busca o valor de uma conta específica pelo nome, como 'Receita Líquida' ou 'Despesas Operacionais'."""
+    conn = get_db_connection()
+    try:
+        # Usar LIKE com placeholders para segurança
+        query = "SELECT valor FROM dre WHERE descrição LIKE ? AND empresa_id = ?"
+        cursor = conn.cursor()
+        result = cursor.execute(query, (f'%{account_name}%', empresa_id)).fetchone()
+        if result and result[0] is not None:
+            return float(result[0])
+        return 0.0
+    except Exception as e:
+        print(f"Erro em get_specific_account_value: {e}")
+        return 0.0
+    finally:
+        conn.close()
+
 # --- FUNÇÃO DO DASHBOARD ---
 def display_dashboard(empresa_id):
     st.subheader("Dashboard de Visão Geral")
@@ -93,25 +128,20 @@ def display_dashboard(empresa_id):
         SELECT * FROM kpis
         """
         kpi_df = pd.read_sql_query(query, conn)
-
         if not kpi_df.empty and kpi_df.notna().all().all():
             receita_liquida = kpi_df['receita_liquida'].iloc[0] or 0
             resultado_final = kpi_df['resultado_final'].iloc[0] or 0
             rotulo_resultado = "Lucro Líquido" if resultado_final >= 0 else "Prejuízo do Exercício"
             margem_liquida = (resultado_final / receita_liquida * 100) if receita_liquida != 0 else 0
-            
             col1, col2, col3 = st.columns(3)
             col1.metric("Receita Líquida", f"R$ {receita_liquida:,.2f}")
             col2.metric(rotulo_resultado, f"R$ {resultado_final:,.2f}")
             col3.metric("Margem Líquida", f"{margem_liquida:.2f}%")
         else:
             st.warning("Não foi possível calcular os KPIs. Verifique os dados da empresa.")
-
         st.markdown("---")
         st.subheader("Top 5 Maiores Despesas")
-        
         despesas_df = pd.read_sql_query(f"SELECT descrição, valor FROM dre WHERE categoria = 'Despesa' AND empresa_id = {empresa_id} ORDER BY valor ASC LIMIT 5", conn)
-        
         if not despesas_df.empty:
             despesas_df['valor_abs'] = despesas_df['valor'].abs()
             fig = px.bar(despesas_df, x='valor_abs', y='descrição', orientation='h', labels={'valor_abs': 'Valor (R$)', 'descrição': ''}, text='valor_abs', color_discrete_sequence=['#007bff'])
@@ -122,25 +152,6 @@ def display_dashboard(empresa_id):
             st.info("Não foram encontradas despesas categorizadas para esta empresa.")
     except Exception as e:
         st.error(f"Erro ao gerar o dashboard: {e}")
-    finally:
-        conn.close()
-
-# --- FERRAMENTAS ESPECIALISTAS DA IA ---
-def get_total_by_category(category: str, empresa_id: int) -> float:
-    conn = get_db_connection()
-    try:
-        query = f"SELECT SUM(valor) FROM dre WHERE categoria = '{category}' AND empresa_id = {empresa_id}"
-        result = pd.read_sql_query(query, conn)
-        return result.iloc[0,0] or 0
-    finally:
-        conn.close()
-
-def get_specific_account_value(account_name: str, empresa_id: int) -> float:
-    conn = get_db_connection()
-    try:
-        query = f"SELECT valor FROM dre WHERE descrição LIKE '%{account_name}%' AND empresa_id = {empresa_id}"
-        result = pd.read_sql_query(query, conn)
-        return result.iloc[0,0] if not result.empty else 0
     finally:
         conn.close()
 
@@ -209,28 +220,24 @@ else:
             Tool.from_function(
                 func=lambda _: get_total_by_category('Custo', empresa_selecionada_id),
                 name="ferramenta_total_custos",
-                description="Use esta ferramenta para obter o valor total de todos os custos da empresa. Não requer input."
+                description="Use esta ferramenta para obter o valor total de todos os custos da empresa."
             ),
             Tool.from_function(
                 func=lambda _: get_specific_account_value('DESPESAS OPERACIONAIS', empresa_selecionada_id),
                 name="ferramenta_despesas_operacionais",
-                description="Use esta ferramenta para obter o valor da linha de Despesas Operacionais. Não requer input."
+                description="Use esta ferramenta para obter o valor da linha de Despesas Operacionais."
             ),
             Tool.from_function(
                 func=lambda _: get_specific_account_value('RECEITA LÍQUIDA', empresa_selecionada_id),
                 name="ferramenta_receita_liquida",
-                description="Use esta ferramenta para obter o valor da Receita Líquida. Não requer input."
+                description="Use esta ferramenta para obter o valor da Receita Líquida."
             )
         ]
         
         agent_prompt_prefix = f"""
         Você é um assistente de IA para análise financeira. Responda em português do Brasil.
         O ID da empresa atual é {empresa_selecionada_id}.
-
-        **REGRAS DE RACIOCÍNIO:**
-        - **PRIORIDADE MÁXIMA:** Antes de tudo, verifique se uma das ferramentas especializadas pode responder à pergunta do usuário. As ferramentas disponíveis são: `ferramenta_total_custos`, `ferramenta_despesas_operacionais`, `ferramenta_receita_liquida`.
-        - **SEGUNDA OPÇÃO:** Se nenhuma ferramenta especializada se encaixar, use suas outras ferramentas para consultar o banco de dados e encontrar a resposta.
-        - **SEGURANÇA:** Lembre-se que você só pode acessar dados da empresa com ID {empresa_selecionada_id}.
+        **REGRAS DE RACIOCÍNIO:** Priorize o uso das ferramentas especializadas.
         """
         
         agent_executor = create_sql_agent(
@@ -238,7 +245,8 @@ else:
             toolkit=toolkit,
             extra_tools=custom_tools,
             verbose=True,
-            prefix=agent_prompt_prefix
+            prefix=agent_prompt_prefix,
+            handle_parsing_errors=True # Adicionado para robustez extra
         )
 
         if "messages" not in st.session_state: st.session_state.messages = []
@@ -251,13 +259,19 @@ else:
                 st.markdown(prompt)
             with st.chat_message("assistant"):
                 with st.spinner("Analisando..."):
-                    response = agent_executor.invoke({"input": prompt})
-                    st.markdown(response["output"])
-            st.session_state.messages.append({"role": "assistant", "content": response["output"]})
+                    # --- "AIRBAG" FINAL EM VOLTA DA IA ---
+                    try:
+                        response = agent_executor.invoke({"input": prompt})
+                        st.markdown(response["output"])
+                        st.session_state.messages.append({"role": "assistant", "content": response["output"]})
+                    except Exception as e:
+                        print(f"ERRO CRÍTICO DO AGENTE: {e}") # Para seus logs
+                        error_message = "Desculpe, encontrei um erro ao processar sua solicitação. Pode ser um problema com os dados ou uma consulta muito complexa. Por favor, tente uma pergunta mais simples."
+                        st.error(error_message)
+                        st.session_state.messages.append({"role": "assistant", "content": error_message})
     
     elif app_mode == "Painel Admin":
         st.header("🔑 Painel de Administração")
-
         st.subheader("Cadastrar Nova Empresa")
         with st.form("form_nova_empresa", clear_on_submit=True):
             nome_nova_empresa = st.text_input("Nome da Nova Empresa")
@@ -351,7 +365,7 @@ else:
             if not lista_usuarios_deletar.empty:
                 usuario_a_deletar_id = st.selectbox("Selecione o Usuário a ser Apagado:", 
                                                     options=lista_usuarios_deletar['id'], 
-                                                    format_func=lambda x: lista_usuarios_deletar.loc[lista_usuarios_deletar['id'] == x, 'email'].iloc[0])
+                                                    format_func=lambda x: lista_usuarios.loc[lista_usuarios_deletar['id'] == x, 'email'].iloc[0])
                 confirmacao = st.checkbox(f"Eu confirmo que desejo apagar permanentemente o usuário selecionado.")
                 submitted_delete = st.form_submit_button("Apagar Usuário")
                 if submitted_delete:
