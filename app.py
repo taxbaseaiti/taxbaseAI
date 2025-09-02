@@ -78,29 +78,25 @@ def categorizar_conta(descricao):
     elif 'LUCRO' in desc or 'RESULTADO' in desc or 'PREJUÍZO' in desc: return 'Resultado'
     else: return 'Outros'
 
-# --- ⭐️ FERRAMENTAS ESPECIALISTAS ATUALIZADAS E SEGURAS ⭐️ ---
+# --- Ferramentas Especialistas da IA ---
 def get_total_by_category(category: str, empresa_id: int) -> float:
-    """Busca o valor total de uma categoria específica (Receita, Custo, Despesa) para uma empresa."""
     conn = get_db_connection()
     try:
-        # Usar placeholders (?) para segurança
         query = "SELECT SUM(valor) FROM dre WHERE categoria = ? AND empresa_id = ?"
         cursor = conn.cursor()
         result = cursor.execute(query, (category, empresa_id)).fetchone()
         if result and result[0] is not None:
             return float(result[0])
-        return 0.0 # Retorna 0.0 se não encontrar nada, garantindo que o tipo é float
+        return 0.0
     except Exception as e:
         print(f"Erro em get_total_by_category: {e}")
-        return 0.0 # Em caso de qualquer erro, retorna um valor seguro
+        return 0.0
     finally:
         conn.close()
 
 def get_specific_account_value(account_name: str, empresa_id: int) -> float:
-    """Busca o valor de uma conta específica pelo nome, como 'Receita Líquida' ou 'Despesas Operacionais'."""
     conn = get_db_connection()
     try:
-        # Usar LIKE com placeholders para segurança
         query = "SELECT valor FROM dre WHERE descrição LIKE ? AND empresa_id = ?"
         cursor = conn.cursor()
         result = cursor.execute(query, (f'%{account_name}%', empresa_id)).fetchone()
@@ -113,6 +109,39 @@ def get_specific_account_value(account_name: str, empresa_id: int) -> float:
     finally:
         conn.close()
 
+def calcular_ebitda(empresa_id: int) -> str:
+    conn = get_db_connection()
+    try:
+        query = f"""
+        SELECT
+            (SELECT valor FROM dre WHERE descrição LIKE '%LUCRO BRUTO%' AND empresa_id = {empresa_id}) as lucro_bruto,
+            (SELECT valor FROM dre WHERE descrição LIKE '%DESPESAS OPERACIONAIS%' AND empresa_id = {empresa_id}) as despesas_op,
+            (SELECT valor FROM dre WHERE descrição LIKE '%DEPRECIAÇÕES, AMORTIZAÇÕES%' AND empresa_id = {empresa_id}) as depr_amort
+        """
+        df = pd.read_sql_query(query, conn)
+
+        if df.empty or df.isnull().values.any():
+            return "Não foi possível calcular o EBITDA, pois um dos componentes necessários (Lucro Bruto, Despesas Operacionais ou Depreciação/Amortização) não foi encontrado nos dados."
+
+        lucro_bruto = df['lucro_bruto'].iloc[0]
+        despesas_op = df['despesas_op'].iloc[0]
+        depr_amort = df['depr_amort'].iloc[0]
+
+        lucro_operacional = lucro_bruto + despesas_op
+        ebitda = lucro_operacional - depr_amort
+
+        return f"""
+        ### Análise de EBITDA
+        - **Lucro Operacional (EBIT):** R$ {lucro_operacional:,.2f}
+        - **(+) Depreciação e Amortização:** R$ {abs(depr_amort):,.2f}
+        - **EBITDA:** **R$ {ebitda:,.2f}**
+        **Fórmula utilizada:** `EBITDA = Lucro Operacional + Depreciação e Amortização`
+        """
+    except Exception as e:
+        return f"Ocorreu um erro ao calcular o EBITDA: {e}"
+    finally:
+        conn.close()
+
 # --- FUNÇÃO DO DASHBOARD ---
 def display_dashboard(empresa_id):
     st.subheader("Dashboard de Visão Geral")
@@ -122,26 +151,29 @@ def display_dashboard(empresa_id):
         WITH kpis AS (
             SELECT
                 (SELECT valor FROM dre WHERE descrição = 'RECEITA LÍQUIDA' AND empresa_id = {empresa_id}) as receita_liquida,
-                (SELECT valor FROM dre WHERE (descrição LIKE '%LUCRO LÍQUIDO%' OR descrição LIKE '%PREJUÍZO DO EXERCÍCIO%') AND empresa_id = {empresa_id}) as resultado_final,
-                (SELECT SUM(saldo_atual) FROM balanco WHERE descrição IN ('ATIVO CIRCULANTE', 'ATIVO NÃO-CIRCULANTE') AND empresa_id = {empresa_id}) as ativo_total
+                (SELECT valor FROM dre WHERE (descrição LIKE '%LUCRO LÍQUIDO%' OR descrição LIKE '%PREJUÍZO DO EXERCÍCIO%') AND empresa_id = {empresa_id}) as resultado_final
             )
         SELECT * FROM kpis
         """
         kpi_df = pd.read_sql_query(query, conn)
+
         if not kpi_df.empty and kpi_df.notna().all().all():
             receita_liquida = kpi_df['receita_liquida'].iloc[0] or 0
             resultado_final = kpi_df['resultado_final'].iloc[0] or 0
             rotulo_resultado = "Lucro Líquido" if resultado_final >= 0 else "Prejuízo do Exercício"
             margem_liquida = (resultado_final / receita_liquida * 100) if receita_liquida != 0 else 0
+            
             col1, col2, col3 = st.columns(3)
             col1.metric("Receita Líquida", f"R$ {receita_liquida:,.2f}")
             col2.metric(rotulo_resultado, f"R$ {resultado_final:,.2f}")
             col3.metric("Margem Líquida", f"{margem_liquida:.2f}%")
         else:
-            st.warning("Não foi possível calcular os KPIs. Verifique os dados da empresa.")
+            st.warning("Não foi possível calcular os KPIs do dashboard.")
+
         st.markdown("---")
         st.subheader("Top 5 Maiores Despesas")
         despesas_df = pd.read_sql_query(f"SELECT descrição, valor FROM dre WHERE categoria = 'Despesa' AND empresa_id = {empresa_id} ORDER BY valor ASC LIMIT 5", conn)
+        
         if not despesas_df.empty:
             despesas_df['valor_abs'] = despesas_df['valor'].abs()
             fig = px.bar(despesas_df, x='valor_abs', y='descrição', orientation='h', labels={'valor_abs': 'Valor (R$)', 'descrição': ''}, text='valor_abs', color_discrete_sequence=['#007bff'])
@@ -231,13 +263,21 @@ else:
                 func=lambda _: get_specific_account_value('RECEITA LÍQUIDA', empresa_selecionada_id),
                 name="ferramenta_receita_liquida",
                 description="Use esta ferramenta para obter o valor da Receita Líquida."
+            ),
+            Tool.from_function(
+                func=lambda _: calcular_ebitda(empresa_selecionada_id),
+                name="ferramenta_calcular_ebitda",
+                description="Ferramenta especialista para calcular o EBITDA e explicar sua fórmula. Use para QUALQUER pergunta sobre EBITDA."
             )
         ]
         
         agent_prompt_prefix = f"""
         Você é um assistente de IA para análise financeira. Responda em português do Brasil.
         O ID da empresa atual é {empresa_selecionada_id}.
-        **REGRAS DE RACIOCÍNIO:** Priorize o uso das ferramentas especializadas.
+        **REGRAS DE RACIOCÍNIO:**
+        - **REGRA EBITDA:** Se a pergunta do usuário mencionar "EBITDA", você DEVE, obrigatoriamente, usar a ferramenta `ferramenta_calcular_ebitda`.
+        - **PRIORIDADE:** Para outras perguntas, sempre verifique se uma das ferramentas especializadas pode responder antes de tentar consultar o banco de dados diretamente.
+        - **SEGURANÇA:** Lembre-se que você só pode acessar dados da empresa com ID {empresa_selecionada_id}.
         """
         
         agent_executor = create_sql_agent(
@@ -246,7 +286,7 @@ else:
             extra_tools=custom_tools,
             verbose=True,
             prefix=agent_prompt_prefix,
-            handle_parsing_errors=True # Adicionado para robustez extra
+            handle_parsing_errors=True
         )
 
         if "messages" not in st.session_state: st.session_state.messages = []
@@ -259,19 +299,18 @@ else:
                 st.markdown(prompt)
             with st.chat_message("assistant"):
                 with st.spinner("Analisando..."):
-                    # --- "AIRBAG" FINAL EM VOLTA DA IA ---
                     try:
                         response = agent_executor.invoke({"input": prompt})
                         st.markdown(response["output"])
                         st.session_state.messages.append({"role": "assistant", "content": response["output"]})
                     except Exception as e:
-                        print(f"ERRO CRÍTICO DO AGENTE: {e}") # Para seus logs
                         error_message = "Desculpe, encontrei um erro ao processar sua solicitação. Pode ser um problema com os dados ou uma consulta muito complexa. Por favor, tente uma pergunta mais simples."
                         st.error(error_message)
                         st.session_state.messages.append({"role": "assistant", "content": error_message})
     
     elif app_mode == "Painel Admin":
         st.header("🔑 Painel de Administração")
+
         st.subheader("Cadastrar Nova Empresa")
         with st.form("form_nova_empresa", clear_on_submit=True):
             nome_nova_empresa = st.text_input("Nome da Nova Empresa")
@@ -365,7 +404,7 @@ else:
             if not lista_usuarios_deletar.empty:
                 usuario_a_deletar_id = st.selectbox("Selecione o Usuário a ser Apagado:", 
                                                     options=lista_usuarios_deletar['id'], 
-                                                    format_func=lambda x: lista_usuarios.loc[lista_usuarios_deletar['id'] == x, 'email'].iloc[0])
+                                                    format_func=lambda x: lista_usuarios_deletar.loc[lista_usuarios_deletar['id'] == x, 'email'].iloc[0])
                 confirmacao = st.checkbox(f"Eu confirmo que desejo apagar permanentemente o usuário selecionado.")
                 submitted_delete = st.form_submit_button("Apagar Usuário")
                 if submitted_delete:
