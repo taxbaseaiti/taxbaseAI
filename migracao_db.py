@@ -6,7 +6,7 @@ import bcrypt
 # --- CONFIGURAÇÃO ---
 ARQUIVO_DB = 'plataforma_financeira.db'
 
-# --- APAGA O BANCO DE DADOS ANTIGO ---
+# --- APAGA O BANCO DE DADOS ANTIGO PARA GARANTIR UMA INSTALAÇÃO LIMPA ---
 if os.path.exists(ARQUIVO_DB):
     os.remove(ARQUIVO_DB)
 
@@ -40,13 +40,14 @@ def categorizar_conta(descricao):
         return 'Outros'
 
 # --- DADOS DE USUÁRIOS E EMPRESAS ---
-# Use o gerar_hash.py para criar os hashes das senhas
-senha_admin_hash = "$2b$12$Uww85k1f7a5yFCrNVxxcUeFxtnVSaOtxD2ezLBb44CgIwCHFfIk5G" # ex: $2b$12$....
-senha_user2_hash = "$2b$12$nybVTViF/YSMq/gXE7ms9eYUhs0QE615p.3UsFQDNQn1MM8g9vlKK" # ex: $2b$12$....
+# Use o gerar_hash.py para criar os hashes das senhas e cole-os aqui
+# Lembre-se de criar hashes para 'senha_admin' e 'senha_user_2'
+senha_admin_hash = "$2b$12$Bmb3qDR5xER9EClCpLIQKOwxPf/jWzM4jhW3m7Vh.71SV3e3WmjHW" # SUBSTITUA PELO SEU HASH DE 'senha_admin'
+senha_user2_hash = "$2b$12$S3Z7Rl4gY4kbjrBeo19pp.UoGioFQKn506LPNdNGwTrIAds1jslbq" # SUBSTITUA PELO SEU HASH DE 'senha_user_2'
 
 usuarios_iniciais = [
     (1, 'Admin Principal', 'admin@email.com', senha_admin_hash, 'admin'),
-    (2, 'Usuário JJ Max', 'user2@email.com', senha_user2_hash, 'user')
+    (2, 'Usuário Teste', 'user2@email.com', senha_user2_hash, 'user')
 ]
 cursor.executemany("INSERT INTO usuarios (id, nome, email, senha, role) VALUES (?, ?, ?, ?, ?)", usuarios_iniciais)
 print("Usuários iniciais criados.")
@@ -93,9 +94,7 @@ for empresa in empresas_para_carregar:
 
 # Conceder permissões
 permissoes_iniciais = [
-    (1, 1), # Admin acessa Ciclomade
-    (1, 2), # Admin acessa JJ MAX
-    (1, 3), # Admin acessa Saude & Forma
+    (1, 1), (1, 2), (1, 3), # Admin acessa todas
     (2, 2)  # User 2 acessa SÓ a JJ MAX
 ]
 cursor.executemany("INSERT INTO permissoes (id_usuario, id_empresa) VALUES (?, ?)", permissoes_iniciais)

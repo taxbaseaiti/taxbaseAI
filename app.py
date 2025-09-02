@@ -5,8 +5,8 @@ import pandas as pd
 import streamlit_authenticator as stauth
 from langchain_openai import ChatOpenAI
 from langchain_community.utilities import SQLDatabase
-from langchain.agents import AgentExecutor
-from langchain.agents.agent_toolkits import create_sql_agent, SQLDatabaseToolkit # <-- IMPORTAÇÃO CORRIGIDA
+from langchain.agents import AgentExecutor, create_sql_agent
+from langchain.agents.agent_toolkits import SQLDatabaseToolkit
 from langchain.tools import Tool
 import bcrypt
 import plotly.express as px
@@ -78,6 +78,54 @@ def categorizar_conta(descricao):
     elif 'LUCRO' in desc or 'RESULTADO' in desc or 'PREJUÍZO' in desc: return 'Resultado'
     else: return 'Outros'
 
+# --- FUNÇÃO DO DASHBOARD ---
+def display_dashboard(empresa_id):
+    st.subheader("Dashboard de Visão Geral")
+    conn = get_db_connection()
+    try:
+        query = f"""
+        WITH kpis AS (
+            SELECT
+                (SELECT valor FROM dre WHERE descrição = 'RECEITA LÍQUIDA' AND empresa_id = {empresa_id}) as receita_liquida,
+                (SELECT valor FROM dre WHERE (descrição LIKE '%LUCRO LÍQUIDO%' OR descrição LIKE '%PREJUÍZO DO EXERCÍCIO%') AND empresa_id = {empresa_id}) as resultado_final,
+                (SELECT SUM(saldo_atual) FROM balanco WHERE descrição IN ('ATIVO CIRCULANTE', 'ATIVO NÃO-CIRCULANTE') AND empresa_id = {empresa_id}) as ativo_total
+            )
+        SELECT * FROM kpis
+        """
+        kpi_df = pd.read_sql_query(query, conn)
+
+        if not kpi_df.empty and kpi_df.notna().all().all():
+            receita_liquida = kpi_df['receita_liquida'].iloc[0] or 0
+            resultado_final = kpi_df['resultado_final'].iloc[0] or 0
+            rotulo_resultado = "Lucro Líquido" if resultado_final >= 0 else "Prejuízo do Exercício"
+            margem_liquida = (resultado_final / receita_liquida * 100) if receita_liquida != 0 else 0
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Receita Líquida", f"R$ {receita_liquida:,.2f}")
+            col2.metric(rotulo_resultado, f"R$ {resultado_final:,.2f}")
+            col3.metric("Margem Líquida", f"{margem_liquida:.2f}%")
+        else:
+            st.warning("Não foi possível calcular os KPIs. Verifique os dados da empresa.")
+
+        st.markdown("---")
+        st.subheader("Top 5 Maiores Despesas")
+        
+        despesas_df = pd.read_sql_query(f"SELECT descrição, valor FROM dre WHERE categoria = 'Despesa' AND empresa_id = {empresa_id} ORDER BY valor ASC LIMIT 5", conn)
+        
+        if not despesas_df.empty:
+            despesas_df['valor_abs'] = despesas_df['valor'].abs()
+            fig = px.bar(despesas_df, x='valor_abs', y='descrição', orientation='h', labels={'valor_abs': 'Valor (R$)', 'descrição': ''}, text='valor_abs', color_discrete_sequence=['#007bff'])
+            fig.update_traces(texttemplate='R$ %{text:,.2f}', textposition='outside')
+            fig.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#FAFAFA')
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Não foram encontradas despesas categorizadas para esta empresa.")
+    except Exception as e:
+        st.error(f"Erro ao gerar o dashboard: {e}")
+    finally:
+        conn.close()
+
+# --- FERRAMENTAS ESPECIALISTAS DA IA ---
 def get_total_by_category(category: str, empresa_id: int) -> float:
     conn = get_db_connection()
     try:
@@ -93,47 +141,6 @@ def get_specific_account_value(account_name: str, empresa_id: int) -> float:
         query = f"SELECT valor FROM dre WHERE descrição LIKE '%{account_name}%' AND empresa_id = {empresa_id}"
         result = pd.read_sql_query(query, conn)
         return result.iloc[0,0] if not result.empty else 0
-    finally:
-        conn.close()
-
-def display_dashboard(empresa_id):
-    st.subheader("Dashboard de Visão Geral")
-    conn = get_db_connection()
-    try:
-        query = f"""
-        WITH kpis AS (
-            SELECT
-                (SELECT valor FROM dre WHERE descrição = 'RECEITA LÍQUIDA' AND empresa_id = {empresa_id}) as receita_liquida,
-                (SELECT valor FROM dre WHERE (descrição LIKE '%LUCRO LÍQUIDO%' OR descrição LIKE '%PREJUÍZO DO EXERCÍCIO%') AND empresa_id = {empresa_id}) as resultado_final,
-                (SELECT SUM(saldo_atual) FROM balanco WHERE descrição IN ('ATIVO CIRCULANTE', 'ATIVO NÃO-CIRCULANTE') AND empresa_id = {empresa_id}) as ativo_total
-            )
-        SELECT * FROM kpis
-        """
-        kpi_df = pd.read_sql_query(query, conn)
-        if not kpi_df.empty and kpi_df.notna().all().all():
-            receita_liquida = kpi_df['receita_liquida'].iloc[0] or 0
-            resultado_final = kpi_df['resultado_final'].iloc[0] or 0
-            rotulo_resultado = "Lucro Líquido" if resultado_final >= 0 else "Prejuízo do Exercício"
-            margem_liquida = (resultado_final / receita_liquida * 100) if receita_liquida != 0 else 0
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Receita Líquida", f"R$ {receita_liquida:,.2f}")
-            col2.metric(rotulo_resultado, f"R$ {resultado_final:,.2f}")
-            col3.metric("Margem Líquida", f"{margem_liquida:.2f}%")
-        else:
-            st.warning("Não foi possível calcular os KPIs.")
-        st.markdown("---")
-        st.subheader("Top 5 Maiores Despesas")
-        despesas_df = pd.read_sql_query(f"SELECT descrição, valor FROM dre WHERE categoria = 'Despesa' AND empresa_id = {empresa_id} ORDER BY valor ASC LIMIT 5", conn)
-        if not despesas_df.empty:
-            despesas_df['valor_abs'] = despesas_df['valor'].abs()
-            fig = px.bar(despesas_df, x='valor_abs', y='descrição', orientation='h', labels={'valor_abs': 'Valor (R$)', 'descrição': ''}, text='valor_abs', color_discrete_sequence=['#007bff'])
-            fig.update_traces(texttemplate='R$ %{text:,.2f}', textposition='outside')
-            fig.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#FAFAFA')
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Não foram encontradas despesas categorizadas para esta empresa.")
-    except Exception as e:
-        st.error(f"Erro ao gerar o dashboard: {e}")
     finally:
         conn.close()
 
@@ -190,16 +197,13 @@ else:
         empresa_selecionada_id = empresas_dict[empresa_selecionada_nome]
         
         st.header(f"Analisando: {empresa_selecionada_nome}")
-
         display_dashboard(empresa_selecionada_id)
-        
         st.divider()
         st.header("Converse com a IA")
         
         llm = ChatOpenAI(temperature=0, model="gpt-4o", api_key=st.secrets["OPENAI_API_KEY"])
         db = SQLDatabase.from_uri(f"sqlite:///{DB_PATH}")
         
-        # --- ARQUITETURA FINAL HÍBRIDA E ROBUSTA ---
         toolkit = SQLDatabaseToolkit(db=db, llm=llm)
         custom_tools = [
             Tool.from_function(
