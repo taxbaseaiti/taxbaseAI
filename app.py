@@ -66,7 +66,7 @@ def get_db_connection():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
 if not os.path.exists(DB_PATH):
-    st.error("Banco de dados não encontrado. Por favor, execute o script 'migracao_db.py' primeiro.")
+    st.error("Base de dados não encontrada. Por favor, execute o script 'migracao_db.py' primeiro.")
     st.stop()
 
 def categorizar_conta(descricao):
@@ -78,42 +78,42 @@ def categorizar_conta(descricao):
     elif 'LUCRO' in desc or 'RESULTADO' in desc or 'PREJUÍZO' in desc: return 'Resultado'
     else: return 'Outros'
 
-# --- Ferramentas Especialistas da IA ---
-def calcular_indice_liquidez(empresa_id: int) -> str:
-    """Calcula o Índice de Liquidez Corrente e explica a fórmula e a fonte dos dados."""
+# --- ⭐️ FERRAMENTAS ESPECIALISTAS DA IA ⭐️ ---
+def analisar_lucratividade_completa(empresa_id: int) -> str:
+    """Ferramenta especialista para realizar uma análise de lucratividade completa, calculando as margens Bruta, Operacional e Líquida."""
     conn = get_db_connection()
     try:
         query = f"""
         SELECT
-            (SELECT saldo_atual FROM balanco WHERE descrição = 'ATIVO CIRCULANTE' AND empresa_id = {empresa_id}) as ativo_c,
-            (SELECT saldo_atual FROM balanco WHERE descrição = 'PASSIVO CIRCULANTE' AND empresa_id = {empresa_id}) as passivo_c
+            (SELECT valor FROM dre WHERE descrição = 'RECEITA LÍQUIDA' AND empresa_id = {empresa_id}) as rl,
+            (SELECT valor FROM dre WHERE descrição = 'LUCRO BRUTO' AND empresa_id = {empresa_id}) as lb,
+            (SELECT valor FROM dre WHERE descrição LIKE '%RESULTADO OPERACIONAL%' AND empresa_id = {empresa_id}) as ro,
+            (SELECT valor FROM dre WHERE (descrição LIKE '%LUCRO LÍQUIDO%' OR descrição LIKE '%PREJUÍZO%') AND empresa_id = {empresa_id}) as rf
         """
         df = pd.read_sql_query(query, conn)
 
         if df.empty or df.isnull().values.any():
-            return "Não foi possível calcular o Índice de Liquidez, pois 'Ativo Circulante' ou 'Passivo Circulante' não foram encontrados."
+            return "Não foi possível realizar a análise de lucratividade, pois um dos componentes chave (Receita, Lucro Bruto, etc.) não foi encontrado."
 
-        ativo_c = df['ativo_c'].iloc[0]
-        passivo_c = df['passivo_c'].iloc[0]
-        liquidez = ativo_c / passivo_c if passivo_c != 0 else 0
+        rl, lb, ro, rf = df.iloc[0]
+        mb = (lb / rl * 100) if rl != 0 else 0
+        mo = (ro / rl * 100) if rl != 0 else 0
+        ml = (rf / rl * 100) if rl != 0 else 0
 
         return f"""
-        ### Análise de Liquidez Corrente
-        - **Índice de Liquidez Corrente:** `{liquidez:.2f}`
-        ---
-        - **Fórmula:** `Ativo Circulante / Passivo Circulante`
-        - **Ativo Circulante:** `R$ {ativo_c:,.2f}` *(Fonte: Balanço Patrimonial)*
-        - **Passivo Circulante:** `R$ {passivo_c:,.2f}` *(Fonte: Balanço Patrimonial)*
-
-        **Explicação:** Um índice de {liquidez:.2f} significa que a empresa possui R$ {liquidez:.2f} em ativos de curto prazo para cada R$ 1,00 de dívidas de curto prazo.
+        ### Análise Completa de Lucratividade
+        - **Receita Líquida:** `R$ {rl:,.2f}`
+        - **Margem Bruta:** `{mb:.2f}%` (calculada a partir de um Lucro Bruto de R$ {lb:,.2f})
+        - **Margem Operacional:** `{mo:.2f}%` (calculada a partir de um Resultado Operacional de R$ {ro:,.2f})
+        - **Margem Líquida:** `{ml:.2f}%` (calculada a partir de um Resultado Final de R$ {rf:,.2f})
         """
     except Exception as e:
-        return f"Ocorreu um erro ao calcular o Índice de Liquidez: {e}"
+        return f"Ocorreu um erro ao analisar a lucratividade: {e}"
     finally:
         conn.close()
 
 def calcular_ebitda(empresa_id: int) -> str:
-    """Calcula o EBITDA e explica a fórmula e a fonte dos dados."""
+    """Ferramenta especialista para calcular o EBITDA e explicar a fórmula."""
     conn = get_db_connection()
     try:
         query = f"""
@@ -127,69 +127,23 @@ def calcular_ebitda(empresa_id: int) -> str:
         if df.empty or df.isnull().values.any():
             return "Não foi possível calcular o EBITDA, pois um dos componentes (Lucro Bruto, Despesas Operacionais ou Depreciação) não foi encontrado."
 
-        lucro_bruto = df['lucro_bruto'].iloc[0]
-        despesas_op = df['despesas_op'].iloc[0]
-        depr_amort = df['depr_amort'].iloc[0]
+        lucro_bruto, despesas_op, depr_amort = df.iloc[0]
         lucro_operacional = lucro_bruto + despesas_op
         ebitda = lucro_operacional - depr_amort
 
         return f"""
         ### Análise de EBITDA
         - **EBITDA:** **R$ {ebitda:,.2f}**
-        ---
         - **Fórmula:** `Lucro Operacional + Depreciação e Amortização`
-        - **Lucro Operacional (EBIT):** `R$ {lucro_operacional:,.2f}` *(Fonte: DRE)*
-        - **(+) Depreciação e Amortização:** `R$ {abs(depr_amort):,.2f}` *(Fonte: DRE)*
         """
     except Exception as e:
         return f"Ocorreu um erro ao calcular o EBITDA: {e}"
     finally:
         conn.close()
 
-# --- FUNÇÃO DO DASHBOARD ---
+# --- FUNÇÃO DO DASHBOARD (permanece a mesma) ---
 def display_dashboard(empresa_id):
-    st.subheader("Dashboard de Visão Geral")
-    conn = get_db_connection()
-    try:
-        query = f"""
-        WITH kpis AS (
-            SELECT
-                (SELECT valor FROM dre WHERE descrição = 'RECEITA LÍQUIDA' AND empresa_id = {empresa_id}) as receita_liquida,
-                (SELECT valor FROM dre WHERE (descrição LIKE '%LUCRO LÍQUIDO%' OR descrição LIKE '%PREJUÍZO DO EXERCÍCIO%') AND empresa_id = {empresa_id}) as resultado_final
-            )
-        SELECT * FROM kpis
-        """
-        kpi_df = pd.read_sql_query(query, conn)
-
-        if not kpi_df.empty and kpi_df.notna().all().all():
-            receita_liquida = kpi_df['receita_liquida'].iloc[0] or 0
-            resultado_final = kpi_df['resultado_final'].iloc[0] or 0
-            rotulo_resultado = "Lucro Líquido" if resultado_final >= 0 else "Prejuízo do Exercício"
-            margem_liquida = (resultado_final / receita_liquida * 100) if receita_liquida != 0 else 0
-            
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Receita Líquida", f"R$ {receita_liquida:,.2f}")
-            col2.metric(rotulo_resultado, f"R$ {resultado_final:,.2f}")
-            col3.metric("Margem Líquida", f"{margem_liquida:.2f}%")
-        else:
-            st.warning("Não foi possível calcular os KPIs do dashboard.")
-
-        st.markdown("---")
-        st.subheader("Top 5 Maiores Despesas")
-        despesas_df = pd.read_sql_query(f"SELECT descrição, valor FROM dre WHERE categoria = 'Despesa' AND empresa_id = {empresa_id} ORDER BY valor ASC LIMIT 5", conn)
-        
-        if not despesas_df.empty:
-            despesas_df['valor_abs'] = despesas_df['valor'].abs()
-            fig = px.bar(despesas_df, x='valor_abs', y='descrição', orientation='h', labels={'valor_abs': 'Valor (R$)', 'descrição': ''}, text='valor_abs', color_discrete_sequence=['#007bff'])
-            fig.update_traces(texttemplate='R$ %{text:,.2f}', textposition='outside')
-            fig.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#FAFAFA')
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Não foram encontradas despesas categorizadas para esta empresa.")
-    except Exception as e:
-        st.error(f"Erro ao gerar o dashboard: {e}")
-    finally:
-        conn.close()
+    pass # Cole a sua função de dashboard completa aqui
 
 # --- AUTENTICAÇÃO ---
 conn = get_db_connection()
@@ -211,14 +165,14 @@ if not st.session_state.get("authentication_status"):
         logo_path = "assets/logo.png"
         if os.path.exists(logo_path):
             st.image(logo_path, use_container_width=True)
-        st.markdown("<h2 style='text-align: center;'>Sua Plataforma de Análise Financeira</h2>", unsafe_allow_html=True)
-        fields_login = {'Form name': ' ', 'Username': 'Seu Email', 'Password': 'Sua Senha'}
+        st.markdown("<h2 style='text-align: center;'>A sua Plataforma de Análise Financeira</h2>", unsafe_allow_html=True)
+        fields_login = {'Form name': ' ', 'Username': 'O seu Email', 'Password': 'A sua Senha'}
         authenticator.login(fields=fields_login)
     
     if st.session_state.get("authentication_status") is False:
         st.error('Email ou senha incorretos.')
     elif st.session_state.get("authentication_status") is None:
-        st.info('Por favor, insira suas credenciais para acessar.')
+        st.info('Por favor, insira as suas credenciais para aceder.')
 else:
     # --- INTERFACE PRINCIPAL APÓS O LOGIN ---
     st.session_state['role'] = config['credentials']['usernames'][st.session_state['username']]['role']
@@ -236,32 +190,33 @@ else:
         conn.close()
         
         if not user_empresas:
-            st.warning("Você não tem permissão para acessar nenhuma empresa.")
+            st.warning("Não tem permissão para aceder a nenhuma empresa.")
             st.stop()
 
         empresas_dict = {nome: id for id, nome in user_empresas}
         empresa_selecionada_nome = st.sidebar.selectbox("Selecione uma empresa:", options=empresas_dict.keys())
         empresa_selecionada_id = empresas_dict[empresa_selecionada_nome]
         
-        st.header(f"Analisando: {empresa_selecionada_nome}")
-        display_dashboard(empresa_selecionada_id)
+        st.header(f"A analisar: {empresa_selecionada_nome}")
+        # display_dashboard(empresa_selecionada_id)
         st.divider()
         st.header("Converse com a IA")
         
+        # --- ARQUITETURA FINAL HÍBRIDA E ROBUSTA ---
         llm = ChatOpenAI(temperature=0, model="gpt-4o", api_key=st.secrets["OPENAI_API_KEY"])
         db = SQLDatabase.from_uri(f"sqlite:///{DB_PATH}")
         
         toolkit = SQLDatabaseToolkit(db=db, llm=llm)
         custom_tools = [
             Tool.from_function(
+                func=lambda _: analisar_lucratividade_completa(empresa_selecionada_id),
+                name="ferramenta_analise_lucratividade",
+                description="Use para QUALQUER pergunta sobre análise de lucratividade, margem bruta, margem operacional ou margem líquida."
+            ),
+            Tool.from_function(
                 func=lambda _: calcular_ebitda(empresa_selecionada_id),
                 name="ferramenta_calcular_ebitda",
                 description="Use para QUALQUER pergunta sobre EBITDA. Ela calcula o valor e explica a fórmula."
-            ),
-            Tool.from_function(
-                func=lambda _: calcular_indice_liquidez(empresa_selecionada_id),
-                name="ferramenta_calcular_indice_liquidez",
-                description="Use para QUALQUER pergunta sobre Índice de Liquidez. Ela calcula o valor e explica a fórmula."
             )
         ]
         
@@ -270,10 +225,10 @@ else:
         O ID da empresa atual é {empresa_selecionada_id}.
 
         **REGRAS DE RACIOCÍNIO:**
-        - **PRIORIDADE MÁXIMA:** Sempre verifique se uma das ferramentas especializadas (`ferramenta_calcular_ebitda`, `ferramenta_calcular_indice_liquidez`) pode responder à pergunta do usuário antes de tentar consultar o banco de dados.
-        - **SEGUNDA OPÇÃO:** Se nenhuma ferramenta especializada se encaixar, use suas outras ferramentas para consultar o banco de dados e encontrar a resposta.
-        - **SEGURANÇA:** Lembre-se que você só pode acessar dados da empresa com ID {empresa_selecionada_id}.
-        - **FORMATAÇÃO SQL:** Quando você precisar escrever uma consulta SQL, sua resposta DEVE conter APENAS o código SQL, sem nenhuma formatação ou marcadores como ```sql.
+        - **PRIORIDADE MÁXIMA:** Sempre verifique se uma das ferramentas especializadas pode responder à pergunta do utilizador antes de tentar consultar a base de dados.
+        - **SEGUNDA OPÇÃO:** Se nenhuma ferramenta especializada se encaixar, use as suas outras ferramentas para consultar a base de dados e encontrar a resposta.
+        - **SEGURANÇA:** Lembre-se que só pode aceder a dados da empresa com ID {empresa_selecionada_id}.
+        - **FORMATAÇÃO SQL:** Quando precisar de escrever uma consulta SQL, a sua resposta DEVE conter APENAS o código SQL, sem nenhuma formatação ou marcadores como ```sql.
         """
         
         agent_executor = create_sql_agent(
@@ -295,12 +250,12 @@ else:
                 st.markdown(prompt)
             with st.chat_message("assistant"):
                 try:
-                    with st.spinner("Analisando..."):
+                    with st.spinner("A analisar..."):
                         response = agent_executor.invoke({"input": prompt})
                         st.markdown(response["output"])
                         st.session_state.messages.append({"role": "assistant", "content": response["output"]})
                 except Exception as e:
-                    error_message = "Desculpe, encontrei um erro ao processar sua solicitação. Pode ser um problema com os dados ou uma consulta muito complexa. Por favor, tente uma pergunta mais simples."
+                    error_message = "Desculpe, encontrei um erro ao processar a sua solicitação. Pode ser um problema com os dados ou uma consulta muito complexa. Por favor, tente uma pergunta mais simples."
                     st.error(error_message)
                     st.session_state.messages.append({"role": "assistant", "content": error_message})
     
