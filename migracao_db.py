@@ -42,8 +42,8 @@ def categorizar_conta(descricao):
 
 # --- DADOS DE USUÁRIOS E EMPRESAS ---
 # Use o gerar_hash.py para criar os hashes das senhas. SUBSTITUA PELOS SEUS VALORES GERADOS.
-senha_admin_hash = "$2b$12$EHN2pyC5s5yL5s7V4f.M4.KzU2kL4kP2s7g/5vX6t/8s7o7h8f7Jk" # Hash para 'senha_admin'
-senha_user_hash = "$2b$12$41wl/3D9dj0kCj9Ar8kUSuRO2zMlskgjjWqMhoBvX5UMJUvfz1m7i"  # Hash para 'senha_user'
+senha_admin_hash = "$2b$12$gPuN9WGlaue1vIFbwX92Du.8.ysZxuh95twT2n28ccUkeeuBsv7ei" # Hash para 'senha_admin'
+senha_user_hash = "$2b$12$sKG5l0bmmKZ9sSgZIdATXOPU3wFe5AS2pWGlyhwElQ/aOG6wEWRey"  # Hash para 'senha_user'
 
 usuarios_iniciais = [
     (1, 'Admin Principal', 'admin@email.com', senha_admin_hash, 'admin'),
