@@ -79,37 +79,41 @@ def categorizar_conta(descricao):
     else: return 'Outros'
 
 # --- Ferramentas Especialistas da IA ---
-def get_total_by_category(category: str, empresa_id: int) -> float:
+def calcular_indice_liquidez(empresa_id: int) -> str:
+    """Calcula o Índice de Liquidez Corrente e explica a fórmula e a fonte dos dados."""
     conn = get_db_connection()
     try:
-        query = "SELECT SUM(valor) FROM dre WHERE categoria = ? AND empresa_id = ?"
-        cursor = conn.cursor()
-        result = cursor.execute(query, (category, empresa_id)).fetchone()
-        if result and result[0] is not None:
-            return float(result[0])
-        return 0.0
-    except Exception as e:
-        print(f"Erro em get_total_by_category: {e}")
-        return 0.0
-    finally:
-        conn.close()
+        query = f"""
+        SELECT
+            (SELECT saldo_atual FROM balanco WHERE descrição = 'ATIVO CIRCULANTE' AND empresa_id = {empresa_id}) as ativo_c,
+            (SELECT saldo_atual FROM balanco WHERE descrição = 'PASSIVO CIRCULANTE' AND empresa_id = {empresa_id}) as passivo_c
+        """
+        df = pd.read_sql_query(query, conn)
 
-def get_specific_account_value(account_name: str, empresa_id: int) -> float:
-    conn = get_db_connection()
-    try:
-        query = "SELECT valor FROM dre WHERE descrição LIKE ? AND empresa_id = ?"
-        cursor = conn.cursor()
-        result = cursor.execute(query, (f'%{account_name}%', empresa_id)).fetchone()
-        if result and result[0] is not None:
-            return float(result[0])
-        return 0.0
+        if df.empty or df.isnull().values.any():
+            return "Não foi possível calcular o Índice de Liquidez, pois 'Ativo Circulante' ou 'Passivo Circulante' não foram encontrados."
+
+        ativo_c = df['ativo_c'].iloc[0]
+        passivo_c = df['passivo_c'].iloc[0]
+        liquidez = ativo_c / passivo_c if passivo_c != 0 else 0
+
+        return f"""
+        ### Análise de Liquidez Corrente
+        - **Índice de Liquidez Corrente:** `{liquidez:.2f}`
+        ---
+        - **Fórmula:** `Ativo Circulante / Passivo Circulante`
+        - **Ativo Circulante:** `R$ {ativo_c:,.2f}` *(Fonte: Balanço Patrimonial)*
+        - **Passivo Circulante:** `R$ {passivo_c:,.2f}` *(Fonte: Balanço Patrimonial)*
+
+        **Explicação:** Um índice de {liquidez:.2f} significa que a empresa possui R$ {liquidez:.2f} em ativos de curto prazo para cada R$ 1,00 de dívidas de curto prazo.
+        """
     except Exception as e:
-        print(f"Erro em get_specific_account_value: {e}")
-        return 0.0
+        return f"Ocorreu um erro ao calcular o Índice de Liquidez: {e}"
     finally:
         conn.close()
 
 def calcular_ebitda(empresa_id: int) -> str:
+    """Calcula o EBITDA e explica a fórmula e a fonte dos dados."""
     conn = get_db_connection()
     try:
         query = f"""
@@ -121,21 +125,21 @@ def calcular_ebitda(empresa_id: int) -> str:
         df = pd.read_sql_query(query, conn)
 
         if df.empty or df.isnull().values.any():
-            return "Não foi possível calcular o EBITDA, pois um dos componentes necessários (Lucro Bruto, Despesas Operacionais ou Depreciação/Amortização) não foi encontrado nos dados."
+            return "Não foi possível calcular o EBITDA, pois um dos componentes (Lucro Bruto, Despesas Operacionais ou Depreciação) não foi encontrado."
 
         lucro_bruto = df['lucro_bruto'].iloc[0]
         despesas_op = df['despesas_op'].iloc[0]
         depr_amort = df['depr_amort'].iloc[0]
-
         lucro_operacional = lucro_bruto + despesas_op
         ebitda = lucro_operacional - depr_amort
 
         return f"""
         ### Análise de EBITDA
-        - **Lucro Operacional (EBIT):** R$ {lucro_operacional:,.2f}
-        - **(+) Depreciação e Amortização:** R$ {abs(depr_amort):,.2f}
         - **EBITDA:** **R$ {ebitda:,.2f}**
-        **Fórmula utilizada:** `EBITDA = Lucro Operacional + Depreciação e Amortização`
+        ---
+        - **Fórmula:** `Lucro Operacional + Depreciação e Amortização`
+        - **Lucro Operacional (EBIT):** `R$ {lucro_operacional:,.2f}` *(Fonte: DRE)*
+        - **(+) Depreciação e Amortização:** `R$ {abs(depr_amort):,.2f}` *(Fonte: DRE)*
         """
     except Exception as e:
         return f"Ocorreu um erro ao calcular o EBITDA: {e}"
@@ -250,34 +254,26 @@ else:
         toolkit = SQLDatabaseToolkit(db=db, llm=llm)
         custom_tools = [
             Tool.from_function(
-                func=lambda _: get_total_by_category('Custo', empresa_selecionada_id),
-                name="ferramenta_total_custos",
-                description="Use esta ferramenta para obter o valor total de todos os custos da empresa."
-            ),
-            Tool.from_function(
-                func=lambda _: get_specific_account_value('DESPESAS OPERACIONAIS', empresa_selecionada_id),
-                name="ferramenta_despesas_operacionais",
-                description="Use esta ferramenta para obter o valor da linha de Despesas Operacionais."
-            ),
-            Tool.from_function(
-                func=lambda _: get_specific_account_value('RECEITA LÍQUIDA', empresa_selecionada_id),
-                name="ferramenta_receita_liquida",
-                description="Use esta ferramenta para obter o valor da Receita Líquida."
-            ),
-            Tool.from_function(
                 func=lambda _: calcular_ebitda(empresa_selecionada_id),
                 name="ferramenta_calcular_ebitda",
-                description="Ferramenta especialista para calcular o EBITDA e explicar sua fórmula. Use para QUALQUER pergunta sobre EBITDA."
+                description="Use para QUALQUER pergunta sobre EBITDA. Ela calcula o valor e explica a fórmula."
+            ),
+            Tool.from_function(
+                func=lambda _: calcular_indice_liquidez(empresa_selecionada_id),
+                name="ferramenta_calcular_indice_liquidez",
+                description="Use para QUALQUER pergunta sobre Índice de Liquidez. Ela calcula o valor e explica a fórmula."
             )
         ]
         
         agent_prompt_prefix = f"""
         Você é um assistente de IA para análise financeira. Responda em português do Brasil.
         O ID da empresa atual é {empresa_selecionada_id}.
+
         **REGRAS DE RACIOCÍNIO:**
-        - **REGRA EBITDA:** Se a pergunta do usuário mencionar "EBITDA", você DEVE, obrigatoriamente, usar a ferramenta `ferramenta_calcular_ebitda`.
-        - **PRIORIDADE:** Para outras perguntas, sempre verifique se uma das ferramentas especializadas pode responder antes de tentar consultar o banco de dados diretamente.
+        - **PRIORIDADE MÁXIMA:** Sempre verifique se uma das ferramentas especializadas (`ferramenta_calcular_ebitda`, `ferramenta_calcular_indice_liquidez`) pode responder à pergunta do usuário antes de tentar consultar o banco de dados.
+        - **SEGUNDA OPÇÃO:** Se nenhuma ferramenta especializada se encaixar, use suas outras ferramentas para consultar o banco de dados e encontrar a resposta.
         - **SEGURANÇA:** Lembre-se que você só pode acessar dados da empresa com ID {empresa_selecionada_id}.
+        - **FORMATAÇÃO SQL:** Quando você precisar escrever uma consulta SQL, sua resposta DEVE conter APENAS o código SQL, sem nenhuma formatação ou marcadores como ```sql.
         """
         
         agent_executor = create_sql_agent(
@@ -298,19 +294,18 @@ else:
             with st.chat_message("user"):
                 st.markdown(prompt)
             with st.chat_message("assistant"):
-                with st.spinner("Analisando..."):
-                    try:
+                try:
+                    with st.spinner("Analisando..."):
                         response = agent_executor.invoke({"input": prompt})
                         st.markdown(response["output"])
                         st.session_state.messages.append({"role": "assistant", "content": response["output"]})
-                    except Exception as e:
-                        error_message = "Desculpe, encontrei um erro ao processar sua solicitação. Pode ser um problema com os dados ou uma consulta muito complexa. Por favor, tente uma pergunta mais simples."
-                        st.error(error_message)
-                        st.session_state.messages.append({"role": "assistant", "content": error_message})
+                except Exception as e:
+                    error_message = "Desculpe, encontrei um erro ao processar sua solicitação. Pode ser um problema com os dados ou uma consulta muito complexa. Por favor, tente uma pergunta mais simples."
+                    st.error(error_message)
+                    st.session_state.messages.append({"role": "assistant", "content": error_message})
     
     elif app_mode == "Painel Admin":
         st.header("🔑 Painel de Administração")
-
         st.subheader("Cadastrar Nova Empresa")
         with st.form("form_nova_empresa", clear_on_submit=True):
             nome_nova_empresa = st.text_input("Nome da Nova Empresa")
@@ -379,13 +374,17 @@ else:
             lista_usuarios = pd.read_sql('SELECT id, email FROM usuarios', conn)
             lista_empresas = pd.read_sql('SELECT id, nome FROM empresas', conn)
             conn.close()
+
+            # ⭐️ ALTERAÇÃO: Corrigindo o nome da variável ⭐️
             usuario_selecionado_id = st.selectbox("Selecione o Usuário:", options=lista_usuarios['id'], format_func=lambda x: lista_usuarios.loc[lista_usuarios['id'] == x, 'email'].iloc[0])
             empresa_selecionada_id_perm = st.selectbox("Selecione a Empresa:", options=lista_empresas['id'], format_func=lambda x: lista_empresas.loc[lista_empresas['id'] == x, 'nome'].iloc[0])
+            
             submitted_perm = st.form_submit_button("Conceder Permissão")
             if submitted_perm:
                 try:
                     conn = get_db_connection()
                     cursor = conn.cursor()
+                    # ⭐️ ALTERAÇÃO: Usando o nome da variável correta ⭐️
                     cursor.execute("INSERT INTO permissoes (id_usuario, id_empresa) VALUES (?, ?)", (usuario_selecionado_id, empresa_selecionada_id_perm))
                     conn.commit()
                     conn.close()

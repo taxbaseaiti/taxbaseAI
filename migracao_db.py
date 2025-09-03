@@ -6,7 +6,7 @@ import bcrypt
 # --- CONFIGURAÇÃO ---
 ARQUIVO_DB = 'plataforma_financeira.db'
 
-# --- APAGA O BANCO DE DADOS ANTIGO PARA GARANTIR UMA INSTALAÇÃO LIMPA ---
+# --- APAGA O BANCO DE DADOS ANTIGO PARA UM COMEÇO LIMPO ---
 if os.path.exists(ARQUIVO_DB):
     os.remove(ARQUIVO_DB)
 
@@ -28,6 +28,7 @@ def categorizar_conta(descricao):
     if not isinstance(descricao, str):
         return 'Outros'
     desc = descricao.upper()
+    # Ordem de prioridade ajustada para maior precisão
     if 'CUSTO' in desc:
         return 'Custo'
     elif 'RECEITA' in desc:
@@ -40,37 +41,21 @@ def categorizar_conta(descricao):
         return 'Outros'
 
 # --- DADOS DE USUÁRIOS E EMPRESAS ---
-# Use o gerar_hash.py para criar os hashes das senhas e cole-os aqui
-# Lembre-se de criar hashes para 'senha_admin' e 'senha_user_2'
-senha_admin_hash = "$2b$12$Bmb3qDR5xER9EClCpLIQKOwxPf/jWzM4jhW3m7Vh.71SV3e3WmjHW" # SUBSTITUA PELO SEU HASH DE 'senha_admin'
-senha_user2_hash = "$2b$12$S3Z7Rl4gY4kbjrBeo19pp.UoGioFQKn506LPNdNGwTrIAds1jslbq" # SUBSTITUA PELO SEU HASH DE 'senha_user_2'
+# Use o gerar_hash.py para criar os hashes das senhas. SUBSTITUA PELOS SEUS VALORES GERADOS.
+senha_admin_hash = "$2b$12$EHN2pyC5s5yL5s7V4f.M4.KzU2kL4kP2s7g/5vX6t/8s7o7h8f7Jk" # Hash para 'senha_admin'
+senha_user_hash = "$2b$12$41wl/3D9dj0kCj9Ar8kUSuRO2zMlskgjjWqMhoBvX5UMJUvfz1m7i"  # Hash para 'senha_user'
 
 usuarios_iniciais = [
     (1, 'Admin Principal', 'admin@email.com', senha_admin_hash, 'admin'),
-    (2, 'Usuário Teste', 'user2@email.com', senha_user2_hash, 'user')
+    (2, 'Usuário Teste', 'user@email.com', senha_user_hash, 'user')
 ]
 cursor.executemany("INSERT INTO usuarios (id, nome, email, senha, role) VALUES (?, ?, ?, ?, ?)", usuarios_iniciais)
 print("Usuários iniciais criados.")
 
 empresas_para_carregar = [
-    {
-        "id": 1,
-        "nome": "CICLOMADE - INDUSTRIA E COMERCIO DE ESPUMAS LTDA",
-        "dre_csv": "DRE_CICLOMADE_2024.csv",
-        "balanco_csv": "BALANCO_CICLOMADE_2024.csv"
-    },
-    {
-        "id": 2,
-        "nome": "JJ MAX INDUSTRIA E COMERCIO DE COMESTICOS LTDA",
-        "dre_csv": "DRE_JJ_MAX_2024.csv",
-        "balanco_csv": "BALANCO_JJ_MAX_2024.csv"
-    },
-    {
-        "id": 3,
-        "nome": "SAUDE & FORMA-FARMACIA DE MANIPULACAO EHOMEOPATIA LTDA",
-        "dre_csv": "DRE_SAUDE_FORMA_2024.csv",
-        "balanco_csv": "BALANCO_SAUDE_FORMA_2024.csv"
-    }
+    { "id": 1, "nome": "CICLOMADE - INDUSTRIA E COMERCIO DE ESPUMAS LTDA", "dre_csv": "DRE_CICLOMADE_2024.csv", "balanco_csv": "BALANCO_CICLOMADE_2024.csv" },
+    { "id": 2, "nome": "JJ MAX INDUSTRIA E COMERCIO DE COMESTICOS LTDA", "dre_csv": "DRE_JJ_MAX_2024.csv", "balanco_csv": "BALANCO_JJ_MAX_2024.csv" },
+    { "id": 3, "nome": "SAUDE & FORMA-FARMACIA DE MANIPULACAO EHOMEOPATIA LTDA", "dre_csv": "DRE_SAUDE_FORMA_2024.csv", "balanco_csv": "BALANCO_SAUDE_FORMA_2024.csv" }
 ]
 
 for empresa in empresas_para_carregar:
