@@ -1,9 +1,12 @@
 import streamlit as st
 import bcrypt
 
-st.title("🔑 Gerador de Hash de Senha (com Bcrypt)")
+st.set_page_config(page_title="Gerador de Hash", layout="centered")
 
-password = st.text_input("Digite a senha para gerar o hash:", type="password")
+st.title("🔑 Gerador de Hash de Senha")
+st.write("Use esta ferramenta para criar as senhas criptografadas para o seu banco de dados.")
+
+password = st.text_input("Digite a senha que deseja usar (ex: senha_admin):", type="password")
 
 if password:
     try:
@@ -14,11 +17,11 @@ if password:
         salt = bcrypt.gensalt()
         hashed_password_bytes = bcrypt.hashpw(password_bytes, salt)
         
-        # Decodifica o hash de volta para uma string para podermos copiar
+        # Descodifica o hash de volta para uma string para podermos copiar
         hashed_password_str = hashed_password_bytes.decode('utf-8')
         
         st.success("Hash gerado com sucesso!")
-        st.code(hashed_password_str)
+        st.code(hashed_password_str, language=None)
         st.info("⬆️ Copie o hash acima e cole no seu script 'migracao_db.py'")
         
     except Exception as e:

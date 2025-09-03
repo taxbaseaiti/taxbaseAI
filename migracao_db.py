@@ -42,12 +42,12 @@ def categorizar_conta(descricao):
 
 # --- DADOS DE USUÁRIOS E EMPRESAS ---
 # Use o gerar_hash.py para criar os hashes das senhas. SUBSTITUA PELOS SEUS VALORES GERADOS.
-senha_admin_hash = "$2b$12$1O8dvmaD7DgwNzRaRHy0luk87Z9HY7/clTDWBEMTGxzcScXB6mxjK" # Hash para 'senha_admin'
-senha_user_hash = "$2b$12$Wz451r4bciZyVmvGYfysoeLCYCMYL8wLGmilPzip.7H/cCvdNJV6C"  # Hash para 'senha_user'
+admin123 = "$2b$12$GDqlwA1pgyp/Ov52O76mzuWRPnjJU/aEqAvE4M.jDoc5MwT50X.hC" # Hash para 'admin123'
+user123 = "$2b$12$VaXw2vq04wA14uNnK.fKyeMGNFiJREf4IsCLgmu60SUjtQ0/MH23a"  # Hash para 'user123'
 
 usuarios_iniciais = [
-    (1, 'Admin Principal', 'admin@email.com', senha_admin_hash, 'admin'),
-    (2, 'Usuário Teste', 'user@email.com', senha_user_hash, 'user')
+    (1, 'Admin Principal', 'admin@email.com', admin123, 'admin'),
+    (2, 'Usuário Teste', 'user@email.com', user123, 'user')
 ]
 cursor.executemany("INSERT INTO usuarios (id, nome, email, senha, role) VALUES (?, ?, ?, ?, ?)", usuarios_iniciais)
 print("Usuários iniciais criados.")
