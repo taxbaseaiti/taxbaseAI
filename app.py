@@ -385,54 +385,91 @@ if prompt := st.chat_input(f"Pergunte algo sobre {empresa_selecionada_nome}...")
     with st.chat_message("assistant"):
         try:
             with st.spinner("A IA está a pensar e a pesquisar..."):
-                # Busca semântica
-                docs = vector_store.similarity_search(prompt, k=1, score_threshold=0.75) if vector_store else []
+                # 1) Busca semântica com score
+                docs_scores = (
+                    vector_store.similarity_search_with_score(prompt, k=1)
+                    if vector_store
+                    else []
+                )
 
                 resposta_final = ""
-                if docs:
-                    conceito_encontrado = docs[0].metadata
-                    nome_ferramenta = conceito_encontrado.get("ferramenta_associada")
 
-                    if nome_ferramenta in ferramentas_especialistas_map:
-                        st.write(f"**Insight da IA:** A sua pergunta parece estar relacionada com **{conceito_encontrado['termo']}**. A executar a análise especialista...")
-                        funcao_ferramenta = ferramentas_especialistas_map[nome_ferramenta]
+                # 2) Se encontrou conceito com score alto
+                if docs_scores and docs_scores[0][1] >= 0.80:
+                        doc, score = docs_scores[0]
+                        meta = doc.metadata
+                        termo = meta.get("termo")
+                        definicao = meta.get("definicao", "")
+                        nome_ferramenta = meta.get("ferramenta_associada")
 
-                        # Verifica se precisa de argumento extra
-                        if nome_ferramenta == 'ferramenta_detectar_anomalia_despesa':
-                            palavras = prompt.replace("?", "").split()
-                            try:
-                                idx = palavras.index("em")
-                                nome_despesa_extraido = " ".join(palavras[idx+1:])
-                            except ValueError:
-                                nome_despesa_extraido = ""
+                        # 2.a) Sem ferramenta associada: só retorna definição
+                        if not nome_ferramenta:
+                            resposta_final = f"**{termo}**\n\n{definicao}"
 
-                            if not nome_despesa_extraido:
-                                resultado = "Por favor, especifique o nome da despesa que deseja analisar. Ex: 'verificar anomalia em Despesas com Pessoal'."
+                        # 2.b) Ferramenta especialista mapeada
+                        elif nome_ferramenta in ferramentas_especialistas_map:
+                            st.write(
+                                f"**Insight da IA:** "
+                                f"Sua pergunta está relacionada a **{termo}**. "
+                                "Executando a análise especialista..."
+                            )
+                            func = ferramentas_especialistas_map[nome_ferramenta]
+
+                            # Exemplo de ferramenta que extrai nome de despesa
+                            if nome_ferramenta == "ferramenta_detectar_anomalia_despesa":
+                                palavras = prompt.replace("?", "").split()
+                                try:
+                                    idx = palavras.index("em")
+                                    despesa = " ".join(palavras[idx + 1 :])
+                                except ValueError:
+                                    despesa = ""
+
+                                if not despesa:
+                                    resultado = (
+                                        "Por favor, especifique o nome da despesa. "
+                                        "Ex: 'verificar anomalia em Despesas com Pessoal'."
+                                    )
+                                else:
+                                    resultado = func(despesa, empresa_selecionada_id)
                             else:
-                                resultado = funcao_ferramenta(nome_despesa_extraido, empresa_selecionada_id)
+                                resultado = func(empresa_selecionada_id)
+
+                            resposta_final = (
+                                f"{resultado}\n\n---\n**O que isto significa?**\n\n*{definicao}*"
+                            )
+
+                        # 2.c) Metadata pede outra ferramenta: fallback SQL
                         else:
-                            resultado = funcao_ferramenta(empresa_selecionada_id)
+                            agent = create_sql_agent(llm, toolkit=toolkit, verbose=True)
+                            resp = agent.invoke({
+                                "input": f"Pergunta: {prompt}. ID da Empresa: {empresa_selecionada_id}"
+                            })
+                            resposta_final = resp["output"]
 
-                        definicao = conceito_encontrado.get("definicao")
-                        resposta_final = f"{resultado}\n\n---\n**O que isto significa?**\n\n*{definicao}*"
-                    else:
-                        # Fallback para agente SQL
-                        agent_executor = create_sql_agent(llm, toolkit=toolkit, verbose=True)
-                        response = agent_executor.invoke({"input": f"Pergunta: {prompt}. ID da Empresa: {empresa_selecionada_id}"})
-                        resposta_final = response["output"]
+                # 3) Sem conceito relevante: fallback SQL
                 else:
-                    # Fallback se não houver conceito relevante
-                    agent_executor = create_sql_agent(llm, toolkit=toolkit, verbose=True)
-                    response = agent_executor.invoke({"input": f"Pergunta: {prompt}. ID da Empresa: {empresa_selecionada_id}"})
-                    resposta_final = response["output"]
+                    agent = create_sql_agent(llm, toolkit=toolkit, verbose=True)
+                    resp = agent.invoke({
+                        "input": f"Pergunta: {prompt}. ID da Empresa: {empresa_selecionada_id}"
+                    })
+                    resposta_final = resp["output"]
 
+                # 4) Exibe e registra
                 st.markdown(resposta_final)
-                st.session_state.messages.append({"role": "assistant", "content": resposta_final})
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": resposta_final
+                })
 
         except Exception as e:
-            error_message = f"Desculpe, encontrei um erro ao processar a sua solicitação: {e}"
+            error_message = (
+                f"Desculpe, encontrei um erro ao processar a sua solicitação: {e}"
+            )
             st.error(error_message)
-            st.session_state.messages.append({"role": "assistant", "content": error_message})
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": error_message
+            })
 
 elif app_mode == "Painel Admin":
         st.header("🔑 Painel de Administração")
