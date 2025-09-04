@@ -347,10 +347,11 @@ else:
         st.header("Converse com a IA")
         
         # --- ARQUITETURA FINAL COM FERRAMENTAS PREDITIVAS E SEMÂNTICAS ---
+        openai_key = st.secrets["OPENA_AI_KEY"]
         llm = ChatOpenAI(
             temperature=0,
             model="gpt-4o",
-            api_key=st.secrets["openai"]["api_key"]
+            openai_api_key=openai_key
         )
         db = SQLDatabase.from_uri(f"sqlite:///{DB_PATH}")
         
