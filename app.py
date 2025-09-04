@@ -258,7 +258,7 @@ def display_dashboard(empresa_id):
             fig = px.bar(despesas_df, x='valor_abs', y='descrição', orientation='h', labels={'valor_abs': 'Valor (R$)', 'descrição': ''}, text='valor_abs', color_discrete_sequence=['#007bff'])
             fig.update_traces(texttemplate='R$ %{text:,.2f}', textposition='outside')
             fig.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#FAFAFA')
-            st.plotly_chart(fig, fig, width='stretch')
+            st.plotly_chart(fig, width='stretch')
         else:
             st.info("Não foram encontradas despesas categorizadas para esta empresa.")
     except Exception as e:
