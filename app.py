@@ -252,11 +252,10 @@ def display_dashboard(empresa_id):
             st.warning("Não foi possível calcular os KPIs do dashboard.")
         st.markdown("---")
         st.subheader("Top 5 Maiores Despesas")
-        despesas_df = pd.read_sql_query(f"SELECT \"descrição\", valor FROM dre WHERE categoria = 'Despesa' AND empresa_id = {empresa_id} ORDER BY ABS(valor) ASC LIMIT 5", conn)
+        despesas_df = pd.read_sql_query(f"SELECT \"descrição\", valor FROM dre WHERE categoria = 'Despesa' AND empresa_id = {empresa_id} ORDER BY valor ASC LIMIT 5", conn)
         if not despesas_df.empty:
             despesas_df['valor_abs'] = despesas_df['valor'].abs()
-            despesas_df['label'] = despesas_df['periodo'].astype(str) + ' | ' + despesas_df['descrição']
-            fig = px.bar(despesas_df, x='valor_abs', y='label', orientation='h', labels={'valor_abs': 'Valor (R$)', 'label': ''}, text='valor_abs', color_discrete_sequence=['#007bff'])
+            fig = px.bar(despesas_df, x='valor_abs', y='descrição', orientation='h', labels={'valor_abs': 'Valor (R$)', 'descrição': ''}, text='valor_abs', color_discrete_sequence=['#007bff'])
             fig.update_traces(texttemplate='R$ %{text:,.2f}', textposition='outside')
             fig.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#FAFAFA')
             st.plotly_chart(fig, width='stretch')
