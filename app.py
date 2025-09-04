@@ -6,8 +6,8 @@ import streamlit_authenticator as stauth
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.utilities import SQLDatabase
-from langchain.agents import AgentExecutor, create_sql_agent
-from langchain.agents.agent_toolkits import SQLDatabaseToolkit
+from langchain_community.agent_toolkits.sql.base import create_sql_agent
+from langchain_community.agent_toolkits.sql.toolkit import SQLDatabaseToolkit
 from langchain.tools import Tool
 import bcrypt
 import plotly.express as px
@@ -258,7 +258,7 @@ def display_dashboard(empresa_id):
             fig = px.bar(despesas_df, x='valor_abs', y='descrição', orientation='h', labels={'valor_abs': 'Valor (R$)', 'descrição': ''}, text='valor_abs', color_discrete_sequence=['#007bff'])
             fig.update_traces(texttemplate='R$ %{text:,.2f}', textposition='outside')
             fig.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#FAFAFA')
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, fig, width='stretch')
         else:
             st.info("Não foram encontradas despesas categorizadas para esta empresa.")
     except Exception as e:
@@ -308,7 +308,7 @@ if not st.session_state.get("authentication_status"):
     with col2: 
         logo_path = "assets/logo.png"
         if os.path.exists(logo_path):
-            st.image(logo_path, use_container_width=True)
+            st.image(logo_path, width='stretch')
         st.markdown("<h2 style='text-align: center;'>A sua Plataforma de Análise Financeira</h2>", unsafe_allow_html=True)
         fields_login = {'Form name': ' ', 'Username': 'O seu Email', 'Password': 'A sua Senha'}
         authenticator.login(fields=fields_login)
