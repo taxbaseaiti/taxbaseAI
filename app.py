@@ -6,8 +6,8 @@ import streamlit_authenticator as stauth
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.utilities import SQLDatabase
-from langchain_community.agent_toolkits.sql.base import create_sql_agent
-from langchain_community.agent_toolkits.sql.toolkit import SQLDatabaseToolkit
+from langchain.agents import AgentExecutor, create_sql_agent
+from langchain.agents.agent_toolkits import SQLDatabaseToolkit
 from langchain.tools import Tool
 import bcrypt
 import plotly.express as px
