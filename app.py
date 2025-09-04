@@ -347,7 +347,7 @@ else:
         st.header("Converse com a IA")
         
         # --- ARQUITETURA FINAL COM FERRAMENTAS PREDITIVAS E SEMÂNTICAS ---
-        openai_key = st.secrets["OPENA_AI_KEY"]
+        openai_key = st.secrets["OPENAI_API_KEY"]
         llm = ChatOpenAI(
             temperature=0,
             model="gpt-4o",
