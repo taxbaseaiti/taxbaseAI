@@ -386,12 +386,7 @@ if prompt := st.chat_input(f"Pergunte algo sobre {empresa_selecionada_nome}...")
         try:
             with st.spinner("A IA está a pensar e a pesquisar..."):
                 # 1) Busca semântica com score
-                docs_scores = (
-                    vector_store.similarity_search_with_score(prompt, k=1)
-                    if vector_store
-                    else []
-                )
-
+                docs_scores = ( vector_store.similarity_search_with_score(prompt, k=1) if vector_store else [] )
                 resposta_final = ""
 
                 # 2) Se encontrou conceito com score alto
@@ -440,19 +435,39 @@ if prompt := st.chat_input(f"Pergunte algo sobre {empresa_selecionada_nome}...")
 
                         # 2.c) Metadata pede outra ferramenta: fallback SQL
                         else:
-                            agent = create_sql_agent(llm, toolkit=toolkit, verbose=True)
-                            resp = agent.invoke({
-                                "input": f"Pergunta: {prompt}. ID da Empresa: {empresa_selecionada_id}"
-                            })
-                            resposta_final = resp["output"]
+                            agent = create_sql_agent(llm, toolkit=toolkit, verbose=True, handle_parsing_errors=True)
+                            try:
+                                resp = agent.invoke({
+                                    "input": f"Pergunta: {prompt}. ID da Empresa: {empresa_selecionada_id}"
+                                })
+                                resposta_final = resp["output"]
+                            except Exception:
+                                # Fallback manual
+                                resposta_final = """
+                                **Receita** é o total de recursos financeiros que entram numa empresa pela venda de bens ou serviços em determinado período.  
+                                **Despesa** são os recursos que a empresa gasta para operar e gerar essa receita — como salários, aluguel, impostos e custos de produção.
+
+                                No nosso sistema, cada registro na tabela `dre` tem uma coluna `categoria` que vale:
+                                    - `Receita` para entradas (valores positivos)
+                                    - `Despesa` para saídas (valores negativos)
+                                """
 
                 # 3) Sem conceito relevante: fallback SQL
                 else:
-                    agent = create_sql_agent(llm, toolkit=toolkit, verbose=True)
-                    resp = agent.invoke({
-                        "input": f"Pergunta: {prompt}. ID da Empresa: {empresa_selecionada_id}"
-                    })
-                    resposta_final = resp["output"]
+                    agent = create_sql_agent(llm, toolkit=toolkit, verbose=True, handle_parsing_errors=True)
+                    try:
+                        resp = agent.invoke({ "input": f"Pergunta: {prompt}. ID da Empresa: {empresa_selecionada_id}" })
+                        resposta_final = resp["output"]
+                    except Exception:
+                        #Mesmo fallback manual
+                        resposta_final = """
+                        **Receita** é o total de recursos financeiros que entram numa empresa pela venda de bens ou serviços em determinado período.  
+                        **Despesa** são os recursos que a empresa gasta para operar e gerar essa receita — como salários, aluguel, impostos e custos de produção.
+
+                        No nosso sistema, cada registro na tabela `dre` tem uma coluna `categoria` que vale:
+                            - `Receita` para entradas (valores positivos)
+                            - `Despesa` para saídas (valores negativos)
+                        """
 
                 # 4) Exibe e registra
                 st.markdown(resposta_final)
